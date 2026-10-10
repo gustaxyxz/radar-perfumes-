@@ -218,6 +218,16 @@ async function extrairFotoDeMensagem(msg) {
     // 1. Tenta baixar via downloadMedia (5 tentativas com delay progressivo)
     for (let i = 1; i <= 5; i++) {
         try {
+            // Correção de bug conhecido do whatsapp-web.js 1.34.7+:
+            // WhatsApp Web mudou id._serialized para id.$1, quebrando downloadMedia com erro "r: r"
+            if (msg.id && !msg.id._serialized) {
+                if (msg.id.$1) {
+                    msg.id._serialized = msg.id.$1;
+                } else if (msg.id.fromMe !== undefined && msg.id.remote && msg.id.id) {
+                    msg.id._serialized = `${msg.id.fromMe}_${msg.id.remote}_${msg.id.id}`;
+                }
+            }
+
             msg.hasMedia = true; // Força flag para evitar abort precoce no downloadMedia
             const media = await msg.downloadMedia();
             if (media && media.data && media.data.length > 10) {
@@ -238,20 +248,15 @@ async function extrairFotoDeMensagem(msg) {
         }
     }
 
-    // 2. Fallback: thumbnail/imagem embutida diretamente no payload do WhatsApp Web (_data.body)
-    // Existe em ~80% dos casos onde o download falha — é a versão comprimida da imagem
-    if (msg._data && msg._data.body && typeof msg._data.body === 'string' && msg._data.body.length > 50) {
-        console.log('📸 [FOTO] Usando thumbnail/imagem embutida do WhatsApp Web (_data.body)!');
-        let rawData = msg._data.body;
-        let mime = msg._data.mimetype || 'image/jpeg';
-        if (rawData.includes(';base64,')) {
-            const parts = rawData.split(';base64,');
-            mime = parts[0].replace('data:', '') || mime;
-            rawData = parts[1];
-        }
+    // 2. Fallback seguro: só aceita _data.body se for comprovadamente uma URI base64 de imagem
+    // Evita falsos positivos com legendas/textos longos que quebrariam o Telegram
+    if (msg._data && typeof msg._data.body === 'string' && msg._data.body.startsWith('data:image/') && msg._data.body.includes(';base64,')) {
+        console.log('📸 [FOTO] Usando thumbnail/imagem embutida data:image do WhatsApp Web (_data.body)!');
+        const parts = msg._data.body.split(';base64,');
+        const mime = parts[0].replace('data:', '') || 'image/jpeg';
         return {
             mimetype: mime.startsWith('image/') ? mime : 'image/jpeg',
-            data: rawData,
+            data: parts[1],
             filename: 'foto_whatsapp.jpg'
         };
     }

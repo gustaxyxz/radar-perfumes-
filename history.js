@@ -65,18 +65,21 @@ async function sincronizarHistoricoGrupos(client, chatsAlvo) {
                 let mediaFoto = null;
                 if (msg.hasMedia || msg.type === 'image' || (msg._data && (msg._data.mimetype || '').startsWith('image/'))) {
                     try {
+                        if (msg.id && !msg.id._serialized) {
+                            if (msg.id.$1) {
+                                msg.id._serialized = msg.id.$1;
+                            } else if (msg.id.fromMe !== undefined && msg.id.remote && msg.id.id) {
+                                msg.id._serialized = `${msg.id.fromMe}_${msg.id.remote}_${msg.id.id}`;
+                            }
+                        }
                         msg.hasMedia = true;
                         mediaFoto = await msg.downloadMedia();
                     } catch (e) {}
-                    if (!mediaFoto && msg._data?.body && typeof msg._data.body === 'string' && msg._data.body.length > 50) {
-                        let raw = msg._data.body;
-                        let m = msg._data.mimetype || 'image/jpeg';
-                        if (raw.includes(';base64,')) {
-                            const p = raw.split(';base64,');
-                            m = p[0].replace('data:', '') || m;
-                            raw = p[1];
-                        }
-                        mediaFoto = { mimetype: m, data: raw };
+
+                    if (!mediaFoto && msg._data?.body && typeof msg._data.body === 'string' && msg._data.body.startsWith('data:image/') && msg._data.body.includes(';base64,')) {
+                        const parts = msg._data.body.split(';base64,');
+                        const mime = parts[0].replace('data:', '') || 'image/jpeg';
+                        mediaFoto = { mimetype: mime, data: parts[1], filename: 'foto_whatsapp.jpg' };
                     }
                 }
 

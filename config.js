@@ -2,19 +2,21 @@
 // CONFIGURAÇÃO CENTRAL DO RADAR DE PERFUMES
 // ========================================================
 
+try {
+    require('dotenv').config();
+} catch (e) {}
+
 module.exports = {
     // --------------------------------------------------------
     // TELEGRAM
     // --------------------------------------------------------
-    TELEGRAM_TOKEN: '8633603260:AAG3ZAHGBZrOeyHwDXp55DjcjZSs_JqmuXM',
+    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8633603260:AAG3ZAHGBZrOeyHwDXp55DjcjZSs_JqmuXM',
 
     // Canal do parceiro / Operação (onde chegam os anúncios com fotos, mas CONTATO OCULTO)
-    TELEGRAM_PARCEIRO_CHAT_ID: '-5251221555',
+    TELEGRAM_PARCEIRO_CHAT_ID: process.env.TELEGRAM_PARCEIRO_CHAT_ID || '-5251221555',
 
     // Chat privado do Administrador / Dono (onde chegam contatos completos e alertas de arbitragem cruzada)
-    // DICA: Você pode colocar o seu ID pessoal do Telegram aqui ou o ID de um grupo VIP só seu.
-    // Se deixar vazio (''), os alertas de admin também irão para o TELEGRAM_PARCEIRO_CHAT_ID de forma segura.
-    TELEGRAM_ADMIN_CHAT_ID: '',
+    TELEGRAM_ADMIN_CHAT_ID: process.env.TELEGRAM_ADMIN_CHAT_ID || '',
 
     // --------------------------------------------------------
     // GRUPOS MONITORADOS DO WHATSAPP
@@ -70,13 +72,15 @@ module.exports = {
     // SNIPERS DE PLATAFORMAS EXTERNAS (OLX, ML, ENJOEI)
     // --------------------------------------------------------
     // Chave do ScraperAPI para furar o Cloudflare e bloqueio de Datacenter na Azure
-    SCRAPER_API_KEY: '9d8dca70619919cfa18ef76c48b2b540',
-    SCRAPER_API_URL: 'https://api.scraperapi.com?api_key=9d8dca70619919cfa18ef76c48b2b540&country_code=br&url=',
+    SCRAPER_API_KEY: process.env.SCRAPER_API_KEY || '9d8dca70619919cfa18ef76c48b2b540',
+    get SCRAPER_API_URL() {
+        return `https://api.scraperapi.com?api_key=${this.SCRAPER_API_KEY}&country_code=br&url=`;
+    },
 
     // 1. Mercado Livre: Token oficial da API de Desenvolvedor (opcional)
-    ML_ACCESS_TOKEN: '',
+    ML_ACCESS_TOKEN: process.env.ML_ACCESS_TOKEN || '',
 
     // Ou Proxy direto HTTP/SOCKS5
-    HTTP_PROXY_URL: ''
+    HTTP_PROXY_URL: process.env.HTTP_PROXY_URL || ''
 };
 
