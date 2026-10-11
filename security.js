@@ -172,6 +172,65 @@ class SecurityService {
 
         return false;
     }
+
+    /**
+     * Normaliza e formata telefone para link direto do WhatsApp (wa.me) e exibição amigável
+     * Trata contas antigas sem 9º dígito, DDI 55, sufixos de dispositivo (:12) e validação real
+     */
+    formatarTelefoneWhatsapp(telefoneBruto, autorRaw = '') {
+        let digitos = String(telefoneBruto || '').replace(/\D/g, '');
+
+        if (!digitos && autorRaw) {
+            digitos = String(autorRaw).split('@')[0].replace(/\D/g, '');
+        }
+
+        // Se for ID de dispositivo longo ou LID, extrai padrão brasileiro se existir
+        if (digitos.length > 15) {
+            const match55 = digitos.match(/55\d{10,11}/);
+            if (match55) digitos = match55[0];
+        }
+
+        if (!digitos || digitos.length < 8) {
+            return {
+                valido: false,
+                numeroLimpo: '',
+                formatado: 'Não identificado',
+                linkWpp: ''
+            };
+        }
+
+        // Se não tiver o DDI 55 (Brasil) e tiver 10 ou 11 dígitos, adiciona 55
+        if ((digitos.length === 10 || digitos.length === 11) && !digitos.startsWith('55')) {
+            digitos = '55' + digitos;
+        }
+
+        // Se for número BR de 12 dígitos começando com 55 (55 + DDD + 8 dígitos)
+        // No Brasil celulares têm 9 dígitos. Muitas contas do WhatsApp guardam sem o 9 no JID antigo.
+        if (digitos.length === 12 && digitos.startsWith('55')) {
+            const ddd = parseInt(digitos.slice(2, 4), 10);
+            const primeiroDigito = digitos[4];
+            if (ddd >= 11 && ddd <= 99 && ['6', '7', '8', '9'].includes(primeiroDigito)) {
+                digitos = digitos.slice(0, 4) + '9' + digitos.slice(4);
+            }
+        }
+
+        // Formatação visual amigável: +55 (11) 98765-4321
+        let formatado = '+' + digitos;
+        if (digitos.startsWith('55') && digitos.length === 13) {
+            formatado = `+55 (${digitos.slice(2, 4)}) ${digitos.slice(4, 9)}-${digitos.slice(9)}`;
+        } else if (digitos.startsWith('55') && digitos.length === 12) {
+            formatado = `+55 (${digitos.slice(2, 4)}) ${digitos.slice(4, 8)}-${digitos.slice(8)}`;
+        }
+
+        const linkWpp = `https://wa.me/${digitos}`;
+
+        return {
+            valido: true,
+            numeroLimpo: digitos,
+            formatado,
+            linkWpp
+        };
+    }
 }
 
 module.exports = new SecurityService();

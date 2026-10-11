@@ -304,41 +304,58 @@ class TelegramService {
     // NOTIFICAÇÕES FORMATADAS
     // ----------------------------------------------------
 
-    // 1. Notificação do Anúncio (Grupo Parceiro — contato mascarado, admin libera depois)
+    // 1. Notificação do Anúncio Completo no Grupo (sem mascaramento, com WhatsApp direto e análise inteligente de mercado)
     async notificarAnuncioParceiro(item, media = null) {
-        const icone = item.tipo === 'COMPRA' ? '🔍 [PROCURA]' : '💎 [DESAPEGO / VENDA]';
-        const precoTxt = item.preco ? `R$ ${item.preco.toFixed(2)}` : 'Não informado';
-        const volTxt = item.volume ? `${item.volume}ml` : 'Não informado';
+        const security = require('./security');
+        const icone = item.tipo === 'COMPRA' ? '🔍 [PROCURA / COMPRADOR]' : '💎 [DESAPEGO / VENDA]';
+        const precoTxt = item.preco ? `R$ ${item.preco.toFixed(2)}` : 'A combinar';
+        const volTxt = item.volume ? ` (${item.volume}ml)` : '';
+
+        // Análise de Mercado (FIPE de Perfumes / Inteligência Comercial)
+        let analiseMercadoTxt = '';
+        if (item.analiseMercado && item.analiseMercado.selo) {
+            analiseMercadoTxt = `\n📊 <b>Análise de Mercado:</b> <b>${item.analiseMercado.selo}</b>\n💡 <i>${item.analiseMercado.parecer}</i>\n`;
+        }
+
+        // Formatação inteligente e real do número de WhatsApp
+        const telInfo = security.formatarTelefoneWhatsapp(item.autorTelefone, item.autor);
+        const linkWpp = telInfo.linkWpp || (item.autorTelefone ? `https://wa.me/${item.autorTelefone}` : '');
+        const telExibicao = telInfo.formatado || (item.autorTelefone ? `+${item.autorTelefone}` : 'Não informado');
 
         let extraDecant = '';
         if (item.oportunidadeDecant && item.custoPorMl) {
-            extraDecant = `\n🧪 <b>Oportunidade Decant:</b> Custo ~ R$ ${item.custoPorMl}/ml`;
+            extraDecant = `\n🧪 <b>Oportunidade Fracionado:</b> Custo ~ R$ ${item.custoPorMl}/ml`;
         }
 
         let auditTxt = '';
         if (item.auditoriaSeguranca) {
-            auditTxt = `\n🛡️ <b>Auditoria:</b> ${item.auditoriaSeguranca.selo}`;
+            auditTxt = `\n🛡️ <b>Auditoria Anti-Golpe:</b> ${item.auditoriaSeguranca.selo} (Score: ${item.auditoriaSeguranca.score}/100)`;
         }
 
-        const texto = `<b>${icone} OPORTUNIDADE IDENTIFICADA</b>
-
-📦 <b>Perfume:</b> ${item.perfume || 'Diversos / Anúncio Geral'}
-💰 <b>Preço:</b> ${precoTxt}
-🧪 <b>Volume:</b> ${volTxt}${extraDecant}${auditTxt}
+        const texto = `<b>${icone} DETECTADO!</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+📦 <b>Perfume:</b> <b>${item.perfume || 'Perfume / Desapego Geral'}</b>
+💰 <b>Preço:</b> <b>${precoTxt}</b>${volTxt}${extraDecant}
+${analiseMercadoTxt}
 👥 <b>Grupo Origem:</b> ${item.grupoNome}
-🆔 <b>Código:</b> <code>${item.id}</code>
+👤 <b>Anunciante:</b> <b>${item.autor}</b>
+📞 <b>WhatsApp:</b> <code>${telExibicao}</code>
+🔗 <b>Link Direto:</b> <a href="${linkWpp}">${linkWpp}</a>
+🆔 <b>Código:</b> <code>${item.id}</code>${auditTxt}
 
-🔒 <b>Contato Vendedor:</b> <i>[Solicite ao Admin pelo botão abaixo]</i>
+💬 <b>Descrição Completa do Anúncio:</b>
+<i>${escapeHtml(item.texto)}</i>
+━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
-💬 <b>Mensagem Original:</b>
-<i>${escapeHtml(item.texto.substring(0, 400))}</i>`;
+        const botoes = [];
+        if (linkWpp) {
+            botoes.push([{ text: '💬 Chamar no WhatsApp (1 Clique)', url: linkWpp }]);
+        }
+        botoes.push([
+            { text: '🛡️ Checklist Anti-Golpe', callback_data: `checklist_${item.id}` }
+        ]);
 
-        const replyMarkup = {
-            inline_keyboard: [
-                [{ text: '🛎️ Solicitar Contato ao Admin', callback_data: `solicitar_${item.id}` }],
-                [{ text: '🛡️ Checklist Anti-Golpe', callback_data: `checklist_${item.id}` }]
-            ]
-        };
+        const replyMarkup = { inline_keyboard: botoes };
 
         let fotos = Array.isArray(media) ? media : (media ? [media] : []);
         if (fotos.length === 0 && item?.fotos && Array.isArray(item.fotos) && item.fotos.length > 0) {
@@ -356,49 +373,38 @@ class TelegramService {
         }
     }
 
-    // 2. Notificação Completa para o Admin (com WhatsApp direto, Auditoria e Botões Rápidos)
+    // 2. Notificação Completa para o Admin no Privado (se configurado)
     async notificarAnuncioAdmin(item, media = null) {
         if (!this.adminChatId) return;
+        // Evita duplicar se o admin chat ID for o mesmo do grupo de parceiros
+        if (String(this.adminChatId) === String(this.parceiroChatId)) return;
 
+        const security = require('./security');
         const icone = item.tipo === 'COMPRA' ? '🔍 [COMPRA]' : '💎 [VENDA]';
-        const telFormatado = item.autorTelefone ? `+${item.autorTelefone}` : 'Desconhecido';
-        const linkWpp = item.autorTelefone ? `https://wa.me/${item.autorTelefone}` : '';
+        const telInfo = security.formatarTelefoneWhatsapp(item.autorTelefone, item.autor);
+        const linkWpp = telInfo.linkWpp || (item.autorTelefone ? `https://wa.me/${item.autorTelefone}` : '');
+        const telExibicao = telInfo.formatado || (item.autorTelefone ? `+${item.autorTelefone}` : 'Desconhecido');
 
-        let auditAdmin = '';
-        if (item.auditoriaSeguranca) {
-            const aud = item.auditoriaSeguranca;
-            auditAdmin = `\n🛡️ <b>Auditoria Anti-Golpe:</b> ${aud.selo} (Score: ${aud.score}/100)\n`;
-            if (aud.alertas && aud.alertas.length > 0) {
-                auditAdmin += aud.alertas.map(a => `• ${a}`).join('\n') + '\n';
-            }
-            if (aud.pontosPositivos && aud.pontosPositivos.length > 0) {
-                auditAdmin += aud.pontosPositivos.slice(0, 2).map(p => `• ${p}`).join('\n') + '\n';
-            }
+        let analiseMercadoTxt = '';
+        if (item.analiseMercado && item.analiseMercado.selo) {
+            analiseMercadoTxt = `\n📊 <b>Mercado:</b> <b>${item.analiseMercado.selo}</b>\n💡 <i>${item.analiseMercado.parecer}</i>\n`;
         }
 
-        const texto = `👑 <b>[PAINEL ADMIN] NOVO ANÚNCIO DETECTADO</b>
+        const texto = `👑 <b>[PAINEL ADMIN] NOVO ANÚNCIO CAPTADO</b>
 ${icone} <b>${item.perfume || 'Perfume'}</b>
-
 💰 <b>Valor:</b> ${item.preco ? `R$ ${item.preco.toFixed(2)}` : 'A negociar'}
 👥 <b>Grupo:</b> ${item.grupoNome}
 👤 <b>Autor:</b> ${item.autor}
-📞 <b>Telefone:</b> ${telFormatado}
-🔗 <b>WhatsApp Direto:</b> <a href="${linkWpp}">${linkWpp}</a>
-🆔 <b>Código Interno:</b> <code>${item.id}</code>${auditAdmin}
+📞 <b>Telefone:</b> ${telExibicao}
+🔗 <b>WhatsApp:</b> <a href="${linkWpp}">${linkWpp}</a>
+🆔 <b>Código:</b> <code>${item.id}</code>${analiseMercadoTxt}
 💬 <b>Texto:</b>
 ${escapeHtml(item.texto)}`;
 
         const botoes = [];
-        const linha = [];
-        if (item.autorTelefone) {
-            linha.push({ text: '💬 Chamar no WhatsApp', url: linkWpp });
+        if (linkWpp) {
+            botoes.push([{ text: '💬 Chamar no WhatsApp', url: linkWpp }]);
         }
-        linha.push({ text: '🔓 Liberar p/ Parceiro', callback_data: `liberar_${item.id}` });
-        botoes.push(linha);
-
-        botoes.push([
-            { text: '🛡️ Checklist Anti-Golpe', callback_data: `checklist_${item.id}` }
-        ]);
 
         const replyMarkup = { inline_keyboard: botoes };
 
@@ -418,70 +424,60 @@ ${escapeHtml(item.texto)}`;
         }
     }
 
-    // 3. Alerta de Arbitragem Cruzada (Matching)
+    // 3. Alerta de Arbitragem Cruzada (Matching) - Enviado Diretamente para o Grupo
     async notificarMatchArbitragem(match) {
+        const security = require('./security');
         const { demanda, oferta, perfume, seguranca, spread } = match;
 
         const lucroTxt = spread.lucroEstimado ? `R$ ${spread.lucroEstimado.toFixed(2)}` : 'A definir';
         const compraTxt = spread.precoCompraOrigem ? `R$ ${spread.precoCompraOrigem.toFixed(2)}` : 'A negociar';
         const vendaSugeridaTxt = spread.precoVendaFinal ? `R$ ${spread.precoVendaFinal.toFixed(2)}` : 'A negociar';
 
-        const iconeSeguranca = seguranca.seguro ? '🟢 SEGURA' : '⚠️ ALTO RISCO';
+        const iconeSeguranca = seguranca.seguro ? '🟢 SEGURA' : '⚠️ ATENÇÃO';
 
-        const textoAdmin = `🎯 <b>OPORTUNIDADE DE ARBITRAGEM CRUZADA!</b>
-━━━━━━━━━━━━━━━━━━━━
+        // Normalização de contatos do vendedor e do comprador
+        const telVendedor = security.formatarTelefoneWhatsapp(oferta.autorTelefone, oferta.autor);
+        const telComprador = security.formatarTelefoneWhatsapp(demanda.autorTelefone, demanda.autor);
+
+        const textoMatch = `🎯 <b>OPORTUNIDADE DE ARBITRAGEM CRUZADA!</b>
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 📦 <b>Perfume:</b> <b>${perfume}</b>
+💰 <b>LUCRO ESTIMADO:</b> <b>${lucroTxt}</b> (Spread Bruto)
 🛡️ <b>Segurança de Grupos:</b> <b>${iconeSeguranca}</b>
-${seguranca.motivo}
+<i>${seguranca.motivo}</i>
 
 💵 <b>SIMULAÇÃO FINANCEIRA:</b>
-• Compra de ${oferta.autor} por: <b>${compraTxt}</b>
+• Comprar de ${oferta.autor} por: <b>${compraTxt}</b>
 • Vender para ${demanda.autor} por: <b>${vendaSugeridaTxt}</b>
-• <b>Lucro Estimado:</b> <b>${lucroTxt}</b> (+ ganho na emissão de frete)
+• <b>Margem de Lucro:</b> <b>${lucroTxt}</b>
 
-━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━
 🛒 <b>VENDEDOR (Oferta):</b>
-• Nome: ${oferta.autor}
-• Grupo postado: ${oferta.grupoNome}
-• WhatsApp: <a href="https://wa.me/${oferta.autorTelefone}">https://wa.me/${oferta.autorTelefone}</a>
-• Código: <code>${oferta.id}</code>
+• <b>Nome:</b> ${oferta.autor}
+• <b>Grupo:</b> ${oferta.grupoNome}
+• <b>WhatsApp:</b> <code>${telVendedor.formatado}</code> (<a href="${telVendedor.linkWpp}">Chamar</a>)
+• <b>Disse:</b> <i>"${escapeHtml(oferta.texto)}"</i>
 
-🙋 <b>COMPRADOR (Demanda):</b>
-• Nome: ${demanda.autor}
-• Grupo postado: ${demanda.grupoNome}
-• WhatsApp: <a href="https://wa.me/${demanda.autorTelefone}">https://wa.me/${demanda.autorTelefone}</a>
-• Código: <code>${demanda.id}</code>
-━━━━━━━━━━━━━━━━━━━━`;
+🙋 <b>COMPRADOR (Procura):</b>
+• <b>Nome:</b> ${demanda.autor}
+• <b>Grupo:</b> ${demanda.grupoNome}
+• <b>WhatsApp:</b> <code>${telComprador.formatado}</code> (<a href="${telComprador.linkWpp}">Chamar</a>)
+• <b>Disse:</b> <i>"${escapeHtml(demanda.texto)}"</i>
+━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
-        const botoesAdmin = [
+        const botoesMatch = [
             [
-                { text: '🛒 Chamar Vendedor', url: `https://wa.me/${oferta.autorTelefone}` },
-                { text: '🙋 Chamar Comprador', url: `https://wa.me/${demanda.autorTelefone}` }
+                { text: '🛒 Falar c/ Vendedor', url: telVendedor.linkWpp },
+                { text: '🙋 Falar c/ Comprador', url: telComprador.linkWpp }
             ]
         ];
 
-        if (this.adminChatId) {
-            await this.enviarMensagem(this.adminChatId, textoAdmin, 'HTML', { inline_keyboard: botoesAdmin });
-        } else {
-            const textoParceiro = `🎯 <b>OPORTUNIDADE DE INTERMEDIAÇÃO DETECTADA!</b>
-━━━━━━━━━━━━━━━━━━━━
-📦 <b>Perfume:</b> <b>${perfume}</b>
-🛡️ <b>Status de Grupos:</b> ${iconeSeguranca}
-${seguranca.motivo}
+        // Envia diretamente no Grupo da Operação
+        await this.enviarMensagem(this.parceiroChatId, textoMatch, 'HTML', { inline_keyboard: botoesMatch });
 
-💰 <b>Preço Compra:</b> ${compraTxt}
-📈 <b>Venda Sugerida:</b> ${vendaSugeridaTxt}
-💵 <b>Lucro Estimado:</b> ${lucroTxt}
-
-🆔 <b>Código Compra:</b> <code>${oferta.id}</code>
-🆔 <b>Código Venda:</b> <code>${demanda.id}</code>
-<i>(Clique abaixo para solicitar os dados ao Admin)</i>
-━━━━━━━━━━━━━━━━━━━━`;
-            await this.enviarMensagem(this.parceiroChatId, textoParceiro, 'HTML', {
-                inline_keyboard: [
-                    [{ text: '🛎️ Solicitar Intermediação ao Admin', callback_data: `solicitar_${oferta.id}` }]
-                ]
-            });
+        // Envia também no privado do Admin se for diferente do grupo
+        if (this.adminChatId && String(this.adminChatId) !== String(this.parceiroChatId)) {
+            await this.enviarMensagem(this.adminChatId, textoMatch, 'HTML', { inline_keyboard: botoesMatch });
         }
     }
 

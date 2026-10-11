@@ -215,23 +215,21 @@ async function extrairFotoDeMensagem(msg) {
 
     if (!ehTipoImagem) return null;
 
-    // 1. Tenta baixar via downloadMedia (5 tentativas com delay progressivo)
-    for (let i = 1; i <= 5; i++) {
-        try {
-            // Correção de bug conhecido do whatsapp-web.js 1.34.7+:
-            // WhatsApp Web mudou id._serialized para id.$1, quebrando downloadMedia com erro "r: r"
-            if (msg.id && !msg.id._serialized) {
-                if (msg.id.$1) {
-                    msg.id._serialized = msg.id.$1;
-                } else if (msg.id.fromMe !== undefined && msg.id.remote && msg.id.id) {
-                    msg.id._serialized = `${msg.id.fromMe}_${msg.id.remote}_${msg.id.id}`;
-                }
-            }
+    // Normaliza id._serialized caso venha como id.$1
+    if (msg.id && !msg.id._serialized) {
+        if (msg.id.$1) {
+            msg.id._serialized = msg.id.$1;
+        } else if (msg.id.fromMe !== undefined && msg.id.remote && msg.id.id) {
+            msg.id._serialized = `${msg.id.fromMe}_${msg.id.remote}_${msg.id.id}`;
+        }
+    }
 
-            msg.hasMedia = true; // Força flag para evitar abort precoce no downloadMedia
+    // 1. Tenta baixar via downloadMedia (3 tentativas com delay progressivo)
+    for (let i = 1; i <= 3; i++) {
+        try {
+            msg.hasMedia = true;
             const media = await msg.downloadMedia();
-            if (media && media.data && media.data.length > 10) {
-                // Aceita qualquer tipo com data, mas normaliza MIME para imagem
+            if (media && media.data && media.data.length > 20) {
                 const mime = media.mimetype || 'image/jpeg';
                 return {
                     data: media.data,
@@ -240,35 +238,49 @@ async function extrairFotoDeMensagem(msg) {
                 };
             }
         } catch (e) {
-            console.warn(`⚠️ [FOTO] Tentativa ${i}/5 falhou: ${e.message}`);
+            // Silencioso na retentativa
         }
-        // Delay progressivo: 1.5s, 2s, 2.5s, 3s entre tentativas
-        if (i < 5) {
-            await new Promise(r => setTimeout(r, 1000 + (i * 500)));
+        if (i < 3) {
+            await new Promise(r => setTimeout(r, 800 * i));
         }
     }
 
-    // 2. Fallback seguro: só aceita _data.body se for comprovadamente uma URI base64 de imagem
-    // Evita falsos positivos com legendas/textos longos que quebrariam o Telegram
-    if (msg._data && typeof msg._data.body === 'string' && msg._data.body.startsWith('data:image/') && msg._data.body.includes(';base64,')) {
-        console.log('📸 [FOTO] Usando thumbnail/imagem embutida data:image do WhatsApp Web (_data.body)!');
-        const parts = msg._data.body.split(';base64,');
-        const mime = parts[0].replace('data:', '') || 'image/jpeg';
-        return {
-            mimetype: mime.startsWith('image/') ? mime : 'image/jpeg',
-            data: parts[1],
-            filename: 'foto_whatsapp.jpg'
-        };
+    // 2. Fallback de imagem embutida no payload do WhatsApp Web (_data.body)
+    // No WhatsApp Web, quando a foto chega, o store do navegador embute o base64 da imagem
+    if (msg._data && typeof msg._data.body === 'string' && msg._data.body.length > 50) {
+        let rawData = msg._data.body;
+        let mime = msg._data.mimetype || 'image/jpeg';
+
+        if (rawData.startsWith('data:image/')) {
+            const parts = rawData.split(';base64,');
+            mime = parts[0].replace('data:', '') || mime;
+            rawData = parts[1];
+            return {
+                data: rawData,
+                mimetype: mime,
+                filename: 'foto_whatsapp.jpg'
+            };
+        } else if (
+            rawData.startsWith('/9j/') || // JPEG magic bytes
+            rawData.startsWith('iVBOR') || // PNG magic bytes
+            rawData.startsWith('UklGR') || // WebP magic bytes
+            (msg._data.type === 'image' && /^[A-Za-z0-9+/=]{100,}$/.test(rawData.substring(0, 200)))
+        ) {
+            console.log('📸 [FOTO] Foto recuperada com sucesso via payload embutido do WhatsApp Web (_data.body)!');
+            return {
+                data: rawData,
+                mimetype: mime.startsWith('image/') ? mime : 'image/jpeg',
+                filename: 'foto_whatsapp.jpg'
+            };
+        }
     }
 
-    console.warn('⚠️ [FOTO] Todas as tentativas falharam — mensagem será enviada sem foto.');
     return null;
 }
 
 // --------------------------------------------------------
 // BUFFER DE ANÚNCIOS: AGRUPAMENTO DE FOTOS E ÁLBUNS
 // --------------------------------------------------------
-// Evita que anúncios cheguem sem fotos quando o vendedor envia foto e texto separados
 const bufferAnunciosPendentes = new Map();
 const ultimosAnunciosDisparados = new Map(); // chave -> { itemSalvo, timestamp }
 
@@ -278,66 +290,81 @@ async function dispararAnuncioConsolidado(chave) {
     bufferAnunciosPendentes.delete(chave);
 
     try {
-        const { origem, nomeGrupo, autorTelefone, autorNome, msgId, texto, fotos, ehTipoImagem, msgRef } = entry;
+        const { origem, nomeGrupo, autorTelefone, autorNome, msgId, texto, fotos, mensagensRefs, ehTipoImagem } = entry;
 
         // Validação final de contato bloqueado
         if (security.ehNumeroBloqueado(autorTelefone, texto)) {
-            console.log(`🚫 [CONTATO BLOQUEADO] Descartando anúncio bufferizado de: ${autorTelefone}`);
+            console.log(`🚫 [CONTATO BLOQUEADO] Descartando anúncio de: ${autorTelefone}`);
             return;
         }
 
-        // Última tentativa de foto: se a mensagem tem mídia mas ainda não baixamos, tenta agora
-        if (ehTipoImagem && fotos.length === 0 && msgRef) {
-            try {
-                console.log(`📸 [FOTO FINAL] Última tentativa de download para ${autorNome}...`);
-                const mediaFinal = await extrairFotoDeMensagem(msgRef);
-                if (mediaFinal && mediaFinal.data) {
-                    fotos.push(mediaFinal);
-                    console.log(`✅ [FOTO FINAL] Foto obtida na última tentativa!`);
+        // Momento perfeito: já se passaram 6 a 8 segundos desde o anúncio!
+        // Todas as mídias pendentes já foram processadas internamente pelo WhatsApp Web.
+        if (mensagensRefs && mensagensRefs.length > 0) {
+            for (const mRef of mensagensRefs) {
+                const ehMidia = mRef.hasMedia || mRef.type === 'image' || mRef.type === 'album' ||
+                                (mRef._data && (mRef._data.mimetype || '').startsWith('image/')) ||
+                                (mRef._data && Boolean(mRef._data.directPath));
+                if (ehMidia) {
+                    try {
+                        const mediaExtraida = await extrairFotoDeMensagem(mRef);
+                        if (mediaExtraida && mediaExtraida.data) {
+                            const jaExiste = fotos.some(f => f.data.substring(0, 50) === mediaExtraida.data.substring(0, 50));
+                            if (!jaExiste) {
+                                fotos.push(mediaExtraida);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`⚠️ [FOTO BUFFER] Falha ao extrair foto de mensagem:`, e.message);
+                    }
                 }
-            } catch(e) {
-                console.warn(`⚠️ [FOTO FINAL] Falha definitiva no download: ${e.message}`);
             }
         }
 
         const classificacao = matcher.analisarMensagem(texto);
         const dadosExtraidos = matcher.extrairDados(texto);
 
-        // Se for bate-papo neutro e sem fotos, descarta para não poluir
+        // Se for bate-papo neutro sem nenhuma foto e sem intenção de compra/venda, descarta
         if (classificacao.tipo === 'NEUTRO' && fotos.length === 0 && !ehTipoImagem) {
             return;
         }
 
         const tipoFinal = classificacao.tipo !== 'NEUTRO' ? classificacao.tipo : 'VENDA';
 
+        // Normalização completa do telefone e link wa.me
+        const telInfo = security.formatarTelefoneWhatsapp(autorTelefone, entry.rawAuthor);
+
         const item = {
             msgId: msgId,
             autor: autorNome,
-            autorTelefone: autorTelefone,
+            autorTelefone: telInfo.numeroLimpo || autorTelefone,
+            telefoneFormatado: telInfo.formatado,
+            linkWhatsapp: telInfo.linkWpp,
             grupoId: origem,
             grupoNome: nomeGrupo,
-            texto: texto || '[Foto de desapego]',
+            texto: texto || '[Foto de perfume / desapego]',
             tipo: tipoFinal,
             perfume: dadosExtraidos.perfume,
             preco: dadosExtraidos.preco,
             volume: dadosExtraidos.volume,
             custoPorMl: dadosExtraidos.custoPorMl,
             oportunidadeDecant: dadosExtraidos.oportunidadeDecant,
+            analiseMercado: dadosExtraidos.analiseMercado,
             temFoto: fotos.length > 0,
             fotos: fotos,
             totalFotos: fotos.length
         };
 
-        // Auditoria de Segurança e Prevenção Anti-Golpe
+        // Auditoria de Segurança Anti-Golpe
         item.auditoriaSeguranca = security.analisarSeguranca(item, fotos[0] || null);
 
         console.log('\n========================================================');
-        console.log(`📩 [${tipoFinal}] ANÚNCIO DETECTADO EM: ${nomeGrupo}`);
-        console.log(`👤 Autor: ${autorNome} (+${autorTelefone})`);
+        console.log(`📩 [${tipoFinal}] ANÚNCIO IDENTIFICADO EM: ${nomeGrupo}`);
+        console.log(`👤 Autor: ${autorNome} (${telInfo.formatado})`);
         if (dadosExtraidos.perfume) console.log(`📦 Perfume: ${dadosExtraidos.perfume}`);
         if (dadosExtraidos.preco) console.log(`💰 Preço: R$ ${dadosExtraidos.preco}`);
-        if (fotos.length > 0) console.log(`📸 ${fotos.length} foto(s) anexada(s) (Álbum / Envio unificado)!`);
-        console.log(`🛡️ Auditoria: ${item.auditoriaSeguranca.selo} (Score: ${item.auditoriaSeguranca.score}/100)`);
+        if (item.analiseMercado?.selo) console.log(`📊 Mercado: ${item.analiseMercado.selo}`);
+        console.log(`📸 Fotos anexadas: ${fotos.length} foto(s)`);
         console.log('========================================================\n');
 
         // Armazena no Banco Local
@@ -353,15 +380,15 @@ async function dispararAnuncioConsolidado(chave) {
         // Registra no cache recente (últimos 60s) para anexar fotos complementares tardias
         ultimosAnunciosDisparados.set(chave, { itemSalvo, timestamp: Date.now() });
 
-        // Envia Notificações para o Telegram (Álbum com fotos agrupadas ou Foto única)
+        // Envia Notificação Completa para o Grupo do Telegram (com todas as fotos e links)
         await telegram.notificarAnuncioParceiro(itemSalvo, fotos);
         await telegram.notificarAnuncioAdmin(itemSalvo, fotos);
 
-        // Motor de Arbitragem Cruzada (Matching)
+        // Motor de Arbitragem Cruzada (Matching) - Dispara oportunidades no grupo!
         const matches = matcher.processarCruzamento(itemSalvo, tipoFinal);
         if (matches && matches.length > 0) {
             for (const m of matches) {
-                console.log(`🎯 MATCH DE ARBITRAGEM ENCONTRADO! Perfume: ${m.perfume} | Segurança: ${m.seguranca.nivel}`);
+                console.log(`🎯 MATCH DE ARBITRAGEM ENCONTRADO! Perfume: ${m.perfume}`);
                 await telegram.notificarMatchArbitragem(m);
             }
         }
@@ -414,81 +441,69 @@ client.on('message_create', async msg => {
             }
         }
 
-        // 2. Extrai mídia se for imagem (com retry e fallback para thumbnail embutida)
-        //    NOTA: hasMedia pode chegar false no evento message_create mesmo sendo imagem;
-        //    forçamos a tentativa baseada em tipo/directPath também.
+        // 2. Identifica se a mensagem contém imagem ou mídia
         const ehTipoImagem = msg.hasMedia ||
             msg.type === 'image' ||
             msg.type === 'album' ||
             (msg._data && (msg._data.mimetype || '').startsWith('image/')) ||
-            (msg._data && Boolean(msg._data.directPath));
+            (msg._data && Boolean(msg._data.directPath)) ||
+            (msg._data && Boolean(msg._data.mediaKey));
 
-        let media = ehTipoImagem ? await extrairFotoDeMensagem(msg) : null;
-        let ehImagem = !!(media && media.data);
-
-        // Ignora mensagens vazias que não possuem imagem
-        if (!texto && !ehImagem) {
-            // Se parece ter imagem mas download falhou, agendamos tentativa tardia
-            if (ehTipoImagem) {
-                console.log(`📸 [FOTO PENDENTE] Download falhou agora mas a mensagem tem mídia. Tentativa tardia agendada...`);
-            } else {
-                return;
-            }
-        }
-
-        console.log(`📩 [MSG DETECTADA] Grupo: "${nomeGrupo}" | Autor: ${autorNome} (+${autorTelefone}) | Foto: ${ehImagem ? 'Sim' : (ehTipoImagem ? 'Baixando...' : 'Não')}`);
+        // 3. Classificação preliminar de texto
+        const classificacao = matcher.analisarMensagem(texto);
 
         const chave = `${origem}_${autorTelefone}`;
         const pendente = bufferAnunciosPendentes.get(chave);
 
-        // Se for foto avulsa que chegou logo APÓS o anúncio ter sido disparado (últimos 60s)
-        if (ehImagem && !pendente) {
-            const adRecente = ultimosAnunciosDisparados.get(chave);
-            if (adRecente && (Date.now() - adRecente.timestamp) < 60000) {
-                console.log(`📸 [FOTO TARDIA] Foto recebida para o anúncio recente ${adRecente.itemSalvo.id} de ${autorNome}!`);
-                const legendaExtra = `📸 <b>FOTO ADICIONAL DO ANÚNCIO:</b> <b>${adRecente.itemSalvo.perfume || 'Perfume'}</b>\n💰 <b>Preço:</b> R$ ${adRecente.itemSalvo.preco || 'A negociar'}\n🆔 Código: <code>${adRecente.itemSalvo.id}</code>`;
-                await telegram.enviarFoto(config.TELEGRAM_PARCEIRO_CHAT_ID, media, media.mimetype, legendaExtra);
-                const adminDestino = telegram.adminChatId || config.TELEGRAM_ADMIN_CHAT_ID;
-                if (adminDestino) {
-                    await telegram.enviarFoto(adminDestino, media, media.mimetype, legendaExtra);
-                }
-                return;
-            }
-        }
-
-        // 3. Classificação preliminar
-        const classificacao = matcher.analisarMensagem(texto);
-
-        // Se for bate-papo comum neutro sem imagem e sem anúncio pendente
-        if (classificacao.tipo === 'NEUTRO' && !ehImagem && !pendente) {
+        // Se for bate-papo comum neutro sem imagem e sem anúncio pendente, descarta
+        if (classificacao.tipo === 'NEUTRO' && !ehTipoImagem && !pendente) {
             return;
         }
 
-        // 4. Agrupamento no buffer (conecta texto + fotos sequenciais)
+        console.log(`📩 [MSG DETECTADA] Grupo: "${nomeGrupo}" | Autor: ${autorNome} (+${autorTelefone}) | Tipo: ${ehTipoImagem ? 'Imagem' : 'Texto'}`);
+
+        // Se for foto avulsa que chegou logo APÓS o anúncio ter sido disparado (últimos 60s)
+        if (ehTipoImagem && !pendente) {
+            const adRecente = ultimosAnunciosDisparados.get(chave);
+            if (adRecente && (Date.now() - adRecente.timestamp) < 60000) {
+                console.log(`📸 [FOTO TARDIA] Foto recebida para o anúncio recente ${adRecente.itemSalvo.id} de ${autorNome}! Baixando...`);
+                const mediaTardia = await extrairFotoDeMensagem(msg);
+                if (mediaTardia && mediaTardia.data) {
+                    const legendaExtra = `📸 <b>FOTO ADICIONAL DO ANÚNCIO:</b> <b>${adRecente.itemSalvo.perfume || 'Perfume'}</b>\n💰 <b>Preço:</b> R$ ${adRecente.itemSalvo.preco || 'A negociar'}\n🆔 Código: <code>${adRecente.itemSalvo.id}</code>`;
+                    await telegram.enviarFoto(config.TELEGRAM_PARCEIRO_CHAT_ID, mediaTardia, mediaTardia.mimetype, legendaExtra);
+                    if (telegram.adminChatId && String(telegram.adminChatId) !== String(config.TELEGRAM_PARCEIRO_CHAT_ID)) {
+                        await telegram.enviarFoto(telegram.adminChatId, mediaTardia, mediaTardia.mimetype, legendaExtra);
+                    }
+                    return;
+                }
+            }
+        }
+
+        // 4. Agrupamento no buffer (acumula referências de fotos e concatena textos)
         if (pendente) {
             clearTimeout(pendente.timer);
+            pendente.mensagensRefs.push(msg);
 
-            if (ehImagem && media) {
-                pendente.fotos.push(media);
-                console.log(`📸 Foto adicional agrupada ao anúncio de ${autorNome} (Total: ${pendente.fotos.length})`);
+            if (ehTipoImagem) {
+                pendente.ehTipoImagem = true;
+                console.log(`📸 Imagem adicional anexada ao buffer de ${autorNome} (Total mídias/mensagens: ${pendente.mensagensRefs.length})`);
             }
 
             if (texto) {
-                if (!pendente.texto || pendente.texto === '[Foto de desapego]') {
+                if (!pendente.texto || pendente.texto === '[Foto de perfume / desapego]') {
                     pendente.texto = texto;
                 } else if (!pendente.texto.includes(texto)) {
                     pendente.texto += '\n' + texto;
                 }
             }
 
-            // Aguarda 6s por mais fotos antes de disparar
+            // Aguarda 6s por mais mensagens/fotos antes de consolidar
             pendente.timer = setTimeout(() => dispararAnuncioConsolidado(chave), 6000);
             return;
         }
 
-        // Novo anúncio detectado: inicia buffer de 6 a 8 segundos para coletar fotos anexas
-        // Se a mensagem tem tipo imagem mas o download falhou agora, tentamos novamente no meio do buffer
-        const tempoEspera = (ehTipoImagem && !texto) ? 8000 : 6000;
+        // Novo anúncio detectado: inicia buffer de 6 a 7 segundos para permitir download interno pelo WhatsApp
+        const tempoEspera = (ehTipoImagem && !texto) ? 7000 : 6000;
         const novoEntry = {
             origem,
             nomeGrupo,
@@ -496,33 +511,14 @@ client.on('message_create', async msg => {
             autorTelefone,
             autorNome,
             msgId: msg.id?._serialized,
-            msgRef: msg, // guarda referência para retentativa de download
-            texto: texto || (ehImagem ? '[Foto de desapego]' : ''),
-            fotos: ehImagem && media ? [media] : [],
+            texto: texto || (ehTipoImagem ? '[Foto de perfume / desapego]' : ''),
+            fotos: [],
+            mensagensRefs: [msg],
             ehTipoImagem,
             timer: null
         };
 
-        // Se tem tipo imagem mas download falhou agora, agenda retentativa em 3s durante o buffer
-        if (ehTipoImagem && !ehImagem) {
-            novoEntry.timer = setTimeout(async () => {
-                const entry = bufferAnunciosPendentes.get(chave);
-                if (!entry) return;
-                console.log(`📸 [RETENTATIVA FOTO] Tentando baixar mídia novamente para ${autorNome}...`);
-                try {
-                    const mediaRetry = await extrairFotoDeMensagem(msg);
-                    if (mediaRetry && mediaRetry.data && entry.fotos.length === 0) {
-                        entry.fotos.push(mediaRetry);
-                        console.log(`✅ [RETENTATIVA FOTO] Foto obtida com sucesso na retentativa!`);
-                    }
-                } catch(e) {}
-                clearTimeout(entry.timer);
-                entry.timer = setTimeout(() => dispararAnuncioConsolidado(chave), tempoEspera - 3000);
-            }, 3000);
-        } else {
-            novoEntry.timer = setTimeout(() => dispararAnuncioConsolidado(chave), tempoEspera);
-        }
-
+        novoEntry.timer = setTimeout(() => dispararAnuncioConsolidado(chave), tempoEspera);
         bufferAnunciosPendentes.set(chave, novoEntry);
 
     } catch (erro) {

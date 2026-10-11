@@ -53,6 +53,141 @@ const LISTA_PERFUMES = [
     'ROJA ELYSIUM', 'ELYSIUM'
 ];
 
+// Tabela de Preço Médio de Referência (FIPE de Perfumes Importados)
+// Baseada em valores praticados de desapego para frascos 100ml / nicho
+const TABELA_MERCADO_REFERENCIA = {
+    // Dior
+    'SAUVAGE ELIXIR': { medio: 780, minimoLucro: 620, maximoRevenda: 850 },
+    'SAUVAGE EDP': { medio: 480, minimoLucro: 390, maximoRevenda: 550 },
+    'SAUVAGE EDT': { medio: 420, minimoLucro: 340, maximoRevenda: 480 },
+    'SAUVAGE PARFUM': { medio: 520, minimoLucro: 420, maximoRevenda: 590 },
+    'SAUVAGE': { medio: 450, minimoLucro: 360, maximoRevenda: 520 },
+    'DIOR HOMME INTENSE': { medio: 580, minimoLucro: 460, maximoRevenda: 650 },
+    'DIOR HOMME 2020': { medio: 460, minimoLucro: 370, maximoRevenda: 520 },
+    'DIOR HOMME COLOGNE': { medio: 450, minimoLucro: 360, maximoRevenda: 510 },
+    'DIOR HOMME SPORT': { medio: 450, minimoLucro: 360, maximoRevenda: 510 },
+    'FAHRENHEIT': { medio: 440, minimoLucro: 350, maximoRevenda: 500 },
+
+    // Chanel
+    'BLEU DE CHANEL PARFUM': { medio: 680, minimoLucro: 550, maximoRevenda: 760 },
+    'BLEU DE CHANEL EDP': { medio: 580, minimoLucro: 460, maximoRevenda: 650 },
+    'BLEU DE CHANEL EDT': { medio: 490, minimoLucro: 390, maximoRevenda: 550 },
+    'BLEU DE CHANEL': { medio: 550, minimoLucro: 440, maximoRevenda: 620 },
+    'ALLURE HOMME SPORT EAU EXTREME': { medio: 580, minimoLucro: 460, maximoRevenda: 650 },
+    'ALLURE HOMME SPORT': { medio: 520, minimoLucro: 420, maximoRevenda: 590 },
+    'PLATINUM EGOISTE': { medio: 560, minimoLucro: 450, maximoRevenda: 630 },
+    'COCO MADEMOISELLE': { medio: 550, minimoLucro: 440, maximoRevenda: 630 },
+
+    // Creed
+    'AVENTUS': { medio: 1850, minimoLucro: 1450, maximoRevenda: 2100 },
+    'AVENTUS COLOGNE': { medio: 1750, minimoLucro: 1380, maximoRevenda: 1980 },
+    'SILVER MOUNTAIN WATER': { medio: 1550, minimoLucro: 1200, maximoRevenda: 1750 },
+    'GREEN IRISH TWEED': { medio: 1500, minimoLucro: 1180, maximoRevenda: 1700 },
+    'MILLÉSIME IMPÉRIAL': { medio: 1450, minimoLucro: 1150, maximoRevenda: 1650 },
+
+    // Parfums de Marly
+    'LAYTON': { medio: 1250, minimoLucro: 980, maximoRevenda: 1400 },
+    'LAYTON EXCLUSIF': { medio: 1350, minimoLucro: 1050, maximoRevenda: 1500 },
+    'HEROD': { medio: 1200, minimoLucro: 950, maximoRevenda: 1350 },
+    'PERCIVAL': { medio: 1150, minimoLucro: 900, maximoRevenda: 1300 },
+    'SEDLEY': { medio: 1150, minimoLucro: 900, maximoRevenda: 1300 },
+    'PEGASUS': { medio: 1150, minimoLucro: 900, maximoRevenda: 1300 },
+    'HALTANE': { medio: 1380, minimoLucro: 1100, maximoRevenda: 1550 },
+    'GREENLEY': { medio: 1250, minimoLucro: 980, maximoRevenda: 1400 },
+    'CARLISLE': { medio: 1350, minimoLucro: 1050, maximoRevenda: 1500 },
+
+    // Xerjoff
+    'NAXOS': { medio: 1250, minimoLucro: 980, maximoRevenda: 1400 },
+    'ERBA PURA': { medio: 1200, minimoLucro: 950, maximoRevenda: 1350 },
+    'TORINO21': { medio: 1150, minimoLucro: 900, maximoRevenda: 1300 },
+    'TORINO22': { medio: 1180, minimoLucro: 920, maximoRevenda: 1320 },
+    '40 KNOTS': { medio: 1150, minimoLucro: 900, maximoRevenda: 1300 },
+    'ALEXANDRIA II': { medio: 1650, minimoLucro: 1300, maximoRevenda: 1850 },
+    'RENAISSANCE': { medio: 1050, minimoLucro: 820, maximoRevenda: 1180 },
+
+    // Nishane
+    'HACIVAT': { medio: 1050, minimoLucro: 820, maximoRevenda: 1200 },
+    'ANI': { medio: 980, minimoLucro: 780, maximoRevenda: 1100 },
+    'WULONG CHA': { medio: 980, minimoLucro: 780, maximoRevenda: 1100 },
+    'FAN YOUR FLAMES': { medio: 950, minimoLucro: 750, maximoRevenda: 1080 },
+
+    // Jean Paul Gaultier
+    'ULTRA MALE': { medio: 420, minimoLucro: 330, maximoRevenda: 480 },
+    'LE MALE LE PARFUM': { medio: 440, minimoLucro: 350, maximoRevenda: 500 },
+    'LE MALE ELIXIR': { medio: 480, minimoLucro: 380, maximoRevenda: 550 },
+    'LE MALE': { medio: 360, minimoLucro: 280, maximoRevenda: 420 },
+    'LE BEAU LE PARFUM': { medio: 460, minimoLucro: 360, maximoRevenda: 520 },
+    'LE BEAU PARADISE GARDEN': { medio: 520, minimoLucro: 410, maximoRevenda: 580 },
+    'LE BEAU': { medio: 400, minimoLucro: 320, maximoRevenda: 460 },
+    'SCANDAL POUR HOMME': { medio: 390, minimoLucro: 310, maximoRevenda: 450 },
+
+    // Carolina Herrera
+    '212 VIP BLACK': { medio: 340, minimoLucro: 270, maximoRevenda: 390 },
+    '212 VIP MEN': { medio: 310, minimoLucro: 240, maximoRevenda: 360 },
+    '212 VIP ROSE': { medio: 330, minimoLucro: 260, maximoRevenda: 380 },
+    '212 MEN': { medio: 320, minimoLucro: 250, maximoRevenda: 370 },
+    'BAD BOY': { medio: 360, minimoLucro: 280, maximoRevenda: 420 },
+    'BAD BOY COBALT': { medio: 390, minimoLucro: 310, maximoRevenda: 450 },
+    'GOOD GIRL': { medio: 380, minimoLucro: 300, maximoRevenda: 440 },
+
+    // Paco Rabanne
+    'INVICTUS VICTORY ELIXIR': { medio: 420, minimoLucro: 330, maximoRevenda: 480 },
+    'INVICTUS VICTORY': { medio: 390, minimoLucro: 310, maximoRevenda: 450 },
+    'INVICTUS PLATINUM': { medio: 380, minimoLucro: 300, maximoRevenda: 440 },
+    'INVICTUS': { medio: 350, minimoLucro: 280, maximoRevenda: 410 },
+    '1 MILLION ELIXIR': { medio: 420, minimoLucro: 330, maximoRevenda: 480 },
+    '1 MILLION ROYAL': { medio: 430, minimoLucro: 340, maximoRevenda: 490 },
+    '1 MILLION PARFUM': { medio: 390, minimoLucro: 310, maximoRevenda: 450 },
+    'ONE MILLION': { medio: 340, minimoLucro: 270, maximoRevenda: 390 },
+    'PHANTOM': { medio: 370, minimoLucro: 290, maximoRevenda: 430 },
+
+    // Giorgio Armani
+    'ACQUA DI GIO PROFONDO': { medio: 460, minimoLucro: 360, maximoRevenda: 520 },
+    'ACQUA DI GIO PARFUM': { medio: 490, minimoLucro: 390, maximoRevenda: 550 },
+    'ACQUA DI GIO PROFUMO': { medio: 620, minimoLucro: 490, maximoRevenda: 720 },
+    'ACQUA DI GIO': { medio: 390, minimoLucro: 310, maximoRevenda: 450 },
+    'ARMANI CODE PARFUM': { medio: 480, minimoLucro: 380, maximoRevenda: 550 },
+    'STRONGER WITH YOU INTENSELY': { medio: 480, minimoLucro: 380, maximoRevenda: 550 },
+    'STRONGER WITH YOU ABSOLUTELY': { medio: 480, minimoLucro: 380, maximoRevenda: 550 },
+
+    // YSL
+    'Y EDP': { medio: 480, minimoLucro: 380, maximoRevenda: 550 },
+    'Y LE PARFUM': { medio: 530, minimoLucro: 420, maximoRevenda: 600 },
+    'MYSLF': { medio: 460, minimoLucro: 360, maximoRevenda: 520 },
+    'LA NUIT DE L\'HOMME': { medio: 430, minimoLucro: 340, maximoRevenda: 490 },
+    'LIBRE': { medio: 480, minimoLucro: 380, maximoRevenda: 550 },
+
+    // Versace
+    'VERSACE EROS FLAME': { medio: 360, minimoLucro: 280, maximoRevenda: 420 },
+    'VERSACE EROS EDP': { medio: 350, minimoLucro: 280, maximoRevenda: 410 },
+    'VERSACE EROS EDT': { medio: 320, minimoLucro: 250, maximoRevenda: 380 },
+    'VERSACE DYLAN BLUE': { medio: 330, minimoLucro: 260, maximoRevenda: 390 },
+    'VERSACE POUR HOMME': { medio: 310, minimoLucro: 240, maximoRevenda: 360 },
+
+    // Tom Ford
+    'TOBACCO VANILLE': { medio: 1400, minimoLucro: 1100, maximoRevenda: 1600 },
+    'OUD WOOD': { medio: 1300, minimoLucro: 1020, maximoRevenda: 1500 },
+    'OMBRE LEATHER': { medio: 750, minimoLucro: 590, maximoRevenda: 860 },
+    'LOST CHERRY': { medio: 1500, minimoLucro: 1180, maximoRevenda: 1750 },
+    'NOIR EXTREME': { medio: 720, minimoLucro: 570, maximoRevenda: 830 },
+
+    // Mancera & Montale
+    'CEDRAT BOISE': { medio: 550, minimoLucro: 430, maximoRevenda: 630 },
+    'INTENSE CEDRAT BOISE': { medio: 620, minimoLucro: 490, maximoRevenda: 710 },
+    'RED TOBACCO': { medio: 580, minimoLucro: 460, maximoRevenda: 660 },
+    'INSTANT CRUSH': { medio: 550, minimoLucro: 430, maximoRevenda: 630 },
+    'ARABIAN TONKA': { medio: 600, minimoLucro: 470, maximoRevenda: 690 },
+
+    // Prada & Outros
+    'PRADA L\'HOMME': { medio: 460, minimoLucro: 360, maximoRevenda: 530 },
+    'PRADA L\'HOMME INTENSE': { medio: 550, minimoLucro: 440, maximoRevenda: 640 },
+    'LUNA ROSSA BLACK': { medio: 480, minimoLucro: 380, maximoRevenda: 550 },
+    'LUNA ROSSA CARBON': { medio: 440, minimoLucro: 350, maximoRevenda: 500 },
+    'TERRE D\'HERMES': { medio: 450, minimoLucro: 360, maximoRevenda: 520 },
+    'BACCARAT ROUGE 540': { medio: 1950, minimoLucro: 1500, maximoRevenda: 2300 },
+    'BR540': { medio: 1950, minimoLucro: 1500, maximoRevenda: 2300 }
+};
+
 class Matcher {
     // ----------------------------------------------------
     // CLASSIFICAÇÃO DA MENSAGEM
@@ -235,13 +370,91 @@ class Matcher {
             }
         }
 
+        const analiseMercado = this.avaliarPrecoMercado(perfumeEncontrado, preco, volume);
+
         return {
             perfume: perfumeEncontrado,
             preco: preco,
             volume: volume,
             custoPorMl: custoPorMl,
-            oportunidadeDecant: oportunidadeDecant
+            oportunidadeDecant: oportunidadeDecant,
+            analiseMercado: analiseMercado
         };
+    }
+
+    // ----------------------------------------------------
+    // ANÁLISE REAL DE MERCADO E OPORTUNIDADE COMERCIAL
+    // ----------------------------------------------------
+    avaliarPrecoMercado(perfume, precoAnunciado, volume = 100) {
+        if (!perfume || !precoAnunciado || precoAnunciado <= 0) return null;
+
+        const perfumeUpper = perfume.toUpperCase();
+        let ref = TABELA_MERCADO_REFERENCIA[perfumeUpper];
+
+        // Se não encontrar exato, busca por fragmento conhecido
+        if (!ref) {
+            for (const [nomeRef, dadosRef] of Object.entries(TABELA_MERCADO_REFERENCIA)) {
+                if (perfumeUpper.includes(nomeRef) || nomeRef.includes(perfumeUpper)) {
+                    ref = dadosRef;
+                    break;
+                }
+            }
+        }
+
+        if (!ref) {
+            return {
+                classificacao: 'SEM_TABELA',
+                selo: '⚖️ PREÇO ANUNCIADO: R$ ' + precoAnunciado.toFixed(2),
+                parecer: 'Preço anunciado para avaliação direta no grupo.',
+                margemEstimada: null
+            };
+        }
+
+        // Fator proporcional se o volume informado for diferente de 100ml
+        const fatorVol = (volume && volume > 0 && volume <= 300) ? (volume / 100) : 1;
+        const precoRefMedio = Math.round(ref.medio * fatorVol);
+        const precoRefMinimo = Math.round(ref.minimoLucro * fatorVol);
+
+        const descontoPercent = Math.round(((precoRefMedio - precoAnunciado) / precoRefMedio) * 100);
+        const spreadReais = Math.round(precoRefMedio - precoAnunciado);
+
+        if (precoAnunciado <= precoRefMinimo) {
+            return {
+                classificacao: 'OPORTUNIDADE_DE_OURO',
+                selo: '🔥 OPORTUNIDADE DE OURO',
+                precoMedioMercado: precoRefMedio,
+                descontoPercent,
+                spreadReais,
+                parecer: `💰 Preço <b>${descontoPercent}% abaixo</b> da média de desapego (~R$ ${precoRefMedio}). Potencial de lucro líquido rápido de <b>R$ ${spreadReais}+</b> na revenda!`
+            };
+        } else if (precoAnunciado < precoRefMedio) {
+            return {
+                classificacao: 'BOM_PRECO',
+                selo: '💎 BOM PREÇO P/ REVENDA',
+                precoMedioMercado: precoRefMedio,
+                descontoPercent,
+                spreadReais,
+                parecer: `💵 Preço <b>${descontoPercent}% abaixo</b> da média (~R$ ${precoRefMedio}). Margem bruta de ~<b>R$ ${spreadReais}</b>.`
+            };
+        } else if (precoAnunciado <= Math.round(ref.maximoRevenda * fatorVol)) {
+            return {
+                classificacao: 'PRECO_JUSTO',
+                selo: '⚖️ PREÇO DENTRO DA MÉDIA',
+                precoMedioMercado: precoRefMedio,
+                descontoPercent: 0,
+                spreadReais: 0,
+                parecer: `Alinhado ao valor médio de mercado praticado em grupos (~R$ ${precoRefMedio}).`
+            };
+        } else {
+            return {
+                classificacao: 'ACIMA_DO_MERCADO',
+                selo: '⚠️ ACIMA DA MÉDIA',
+                precoMedioMercado: precoRefMedio,
+                descontoPercent: Math.abs(descontoPercent),
+                spreadReais: spreadReais,
+                parecer: `Valor acima da média de desapego (~R$ ${precoRefMedio}). Pouca margem para intermediação rápida.`
+            };
+        }
     }
 
     // ----------------------------------------------------
