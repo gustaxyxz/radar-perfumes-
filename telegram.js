@@ -490,6 +490,13 @@ ${seguranca.motivo}
     // ----------------------------------------------------
     iniciarPollingComandos(db) {
         this.database = db;
+        if (!this.adminChatId && db && typeof db.obterAdminChatId === 'function') {
+            const salvo = db.obterAdminChatId();
+            if (salvo) {
+                this.adminChatId = String(salvo);
+                console.log(`👑 [ADMIN] ID Administrador carregado do banco: ${this.adminChatId}`);
+            }
+        }
         this.pollingAtivo = true;
         this._executarCicloPolling();
         console.log('🤖 [TELEGRAM] Escuta de comandos (/status, /buscar, /liberar, /admin) ativada.');
@@ -538,12 +545,26 @@ ${seguranca.motivo}
 • <code>/grupos</code> - Lista os grupos monitorados e membros indexados
 • <code>/buscar [perfume]</code> - Busca pessoas vendendo ou procurando (ex: <i>/buscar 212</i>)
 • <code>/liberar [código]</code> - Libera contato de um anúncio (ex: <i>/liberar OF-XXXX</i>)
-• <code>/admin</code> - Define seu chat privado como painel mestre de administrador`;
+• <code>/admin</code> - Define seu chat privado como painel mestre de administrador permanente`;
             await this.enviarMensagem(chatId, ajuda);
         }
         else if (comando === '/admin') {
+            // Se já tiver admin configurado, só o próprio admin pode reconfigurar
+            if (this.adminChatId && String(senderId) !== String(this.adminChatId)) {
+                await this.enviarMensagem(chatId, '⛔ <b>Acesso negado:</b> Já existe um Administrador mestre configurado para este bot.');
+                return;
+            }
+
             this.adminChatId = String(senderId);
-            await this.enviarMensagem(chatId, `✅ <b>ID ${senderId} configurado como Administrador!</b>\nVocê agora receberá contatos completos e alertas de arbitragem no privado.`);
+            if (this.database && typeof this.database.definirAdminChatId === 'function') {
+                this.database.definirAdminChatId(senderId);
+            }
+            await this.enviarMensagem(
+                chatId,
+                `👑 <b>ID ${senderId} configurado como Administrador permanente!</b>\n\n` +
+                `✅ Seu ID foi salvo no banco de dados e não será perdido ao reiniciar o PM2.\n` +
+                `✅ Você agora receberá todos os anúncios no privado com contatos completos (telefone, WhatsApp direto, auditoria anti-golpe e fotos).`
+            );
         }
         else if (comando === '/status') {
             if (!this.database) return;
@@ -606,6 +627,11 @@ ${seguranca.motivo}
             await this.enviarMensagem(chatId, resposta);
         }
         else if (comando === '/liberar') {
+            if (this.adminChatId && String(senderId) !== String(this.adminChatId)) {
+                await this.enviarMensagem(chatId, '⛔ <b>Acesso negado:</b> Apenas o Administrador pode liberar contatos.');
+                return;
+            }
+
             if (!argumento) {
                 await this.enviarMensagem(chatId, '💡 Use: <code>/liberar [ID_DO_CODIGO]</code> (ex: <code>/liberar OF-XXXX</code>)');
                 return;
@@ -653,6 +679,11 @@ ${seguranca.motivo}
         const user = query.from;
 
         if (data.startsWith('liberar_')) {
+            if (this.adminChatId && user?.id && String(user.id) !== String(this.adminChatId)) {
+                await this._responderCallback(query.id, '⛔ Apenas o Administrador pode liberar contatos.');
+                return;
+            }
+
             const idItem = data.replace('liberar_', '');
             if (!this.database) {
                 await this._responderCallback(query.id, 'Banco de dados não carregado.');

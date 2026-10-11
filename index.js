@@ -448,8 +448,9 @@ client.on('message_create', async msg => {
                 console.log(`📸 [FOTO TARDIA] Foto recebida para o anúncio recente ${adRecente.itemSalvo.id} de ${autorNome}!`);
                 const legendaExtra = `📸 <b>FOTO ADICIONAL DO ANÚNCIO:</b> <b>${adRecente.itemSalvo.perfume || 'Perfume'}</b>\n💰 <b>Preço:</b> R$ ${adRecente.itemSalvo.preco || 'A negociar'}\n🆔 Código: <code>${adRecente.itemSalvo.id}</code>`;
                 await telegram.enviarFoto(config.TELEGRAM_PARCEIRO_CHAT_ID, media, media.mimetype, legendaExtra);
-                if (config.TELEGRAM_ADMIN_CHAT_ID) {
-                    await telegram.enviarFoto(config.TELEGRAM_ADMIN_CHAT_ID, media, media.mimetype, legendaExtra);
+                const adminDestino = telegram.adminChatId || config.TELEGRAM_ADMIN_CHAT_ID;
+                if (adminDestino) {
+                    await telegram.enviarFoto(adminDestino, media, media.mimetype, legendaExtra);
                 }
                 return;
             }

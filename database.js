@@ -30,6 +30,7 @@ class Database {
                 if (!this.dados.membrosGrupos) this.dados.membrosGrupos = {};
                 if (!this.dados.gruposInfo) this.dados.gruposInfo = {};
                 if (!this.dados.matchesNotificados) this.dados.matchesNotificados = [];
+                if (!this.dados.config) this.dados.config = {};
             } else {
                 this.salvar();
             }
@@ -221,6 +222,20 @@ class Database {
             }
             this.salvar();
         }
+    }
+
+    // ----------------------------------------------------
+    // CONFIGURAÇÃO PERSISTENTE (ADMIN CHAT ID)
+    // ----------------------------------------------------
+    definirAdminChatId(chatId) {
+        if (!this.dados.config) this.dados.config = {};
+        this.dados.config.adminChatId = String(chatId);
+        this.salvar();
+        return this.dados.config.adminChatId;
+    }
+
+    obterAdminChatId() {
+        return this.dados?.config?.adminChatId || null;
     }
 }
 

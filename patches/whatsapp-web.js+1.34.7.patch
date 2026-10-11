@@ -1,0 +1,58 @@
+diff --git a/node_modules/whatsapp-web.js/src/structures/Message.js b/node_modules/whatsapp-web.js/src/structures/Message.js
+index dd977e8..9b77a6b 100644
+--- a/node_modules/whatsapp-web.js/src/structures/Message.js
++++ b/node_modules/whatsapp-web.js/src/structures/Message.js
+@@ -34,7 +34,7 @@ class Message extends Base {
+          * ID that represents the message
+          * @type {object}
+          */
+-        this.id = data.id;
++        this.id = (data.id && data.id._serialized == null && data.id.$1 != null) ? Object.assign({}, data.id, { _serialized: data.id.$1 }) : data.id;
+ 
+         /**
+          * ACK status for the message
+@@ -524,20 +524,38 @@ class Message extends Base {
+                         .Msg.getMessagesById([msgId])
+                 )?.messages?.[0];
+ 
+-            // REUPLOADING mediaStage means the media is expired and the download button is spinning, cannot be downloaded now
+-            if (
+-                !msg ||
+-                !msg.mediaData ||
+-                msg.mediaData.mediaStage === 'REUPLOADING'
+-            ) {
++            // REUPLOADING mediaStage means the media is expired, cannot be downloaded now
++            if (!msg) {
+                 return null;
+             }
++
++            // mediaData pode ser null se o store interno ainda não processou a mensagem
++            // (comum em message_create imediato). Aguarda até 3s para aparecer.
++            if (!msg.mediaData) {
++                let waitCount = 0;
++                while (!msg.mediaData && waitCount < 15) {
++                    await new Promise(r => setTimeout(r, 200));
++                    waitCount++;
++                }
++            }
++
++            if (!msg.mediaData || msg.mediaData.mediaStage === 'REUPLOADING') {
++                return null;
++            }
++
+             if (msg.mediaData.mediaStage != 'RESOLVED') {
+                 // try to resolve media
+                 await msg.downloadMedia({
+                     downloadEvenIfExpensive: true,
+                     rmrReason: 1,
+                 });
++
++                // Aguarda o término do download interno (FETCHING → RESOLVED), até 6s
++                let attempts = 0;
++                while (msg.mediaData.mediaStage === 'FETCHING' && attempts < 30) {
++                    await new Promise(r => setTimeout(r, 200));
++                    attempts++;
++                }
+             }
+ 
+             if (
