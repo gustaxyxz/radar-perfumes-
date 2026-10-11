@@ -46,13 +46,13 @@ async function sincronizarHistoricoGrupos(client, chatsAlvo) {
                 const texto = msg.body?.trim();
                 if (!texto || texto.length < 5) continue;
 
-                const autorTelefone = (msg.author || msg.from || '').split('@')[0];
+                const rawAuthor = msg.author || msg._data?.participant || '';
+                const autorTelefone = rawAuthor ? rawAuthor.split('@')[0] : '';
                 const autorNome = msg._data?.notifyName || autorTelefone || 'Participante';
 
                 // BLOQUEIO RIGOROSO DE CONTATOS PROIBIDOS (+55 11 98026-6593 etc)
                 if (security.ehNumeroBloqueado(autorTelefone, texto) ||
-                    security.ehNumeroBloqueado(msg.author, texto) ||
-                    security.ehNumeroBloqueado(msg.from, texto)) {
+                    (rawAuthor && security.ehNumeroBloqueado(rawAuthor, texto))) {
                     continue;
                 }
 

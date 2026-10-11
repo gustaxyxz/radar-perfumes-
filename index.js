@@ -384,16 +384,14 @@ client.on('message_create', async msg => {
             return;
         }
 
-        const rawAuthor = msg.author || msg.from || '';
-        const autorTelefone = rawAuthor.split('@')[0];
+        const rawAuthor = msg.author || msg._data?.participant || '';
+        const autorTelefone = rawAuthor ? rawAuthor.split('@')[0] : '';
         const autorNome = msg._data?.notifyName || autorTelefone || 'Participante';
         const texto = msg.body?.trim() || '';
 
         // 0. BLOQUEIO RIGOROSO DE CONTATOS PROIBIDOS (+55 11 98026-6593 etc)
         if (security.ehNumeroBloqueado(autorTelefone, texto) ||
-            security.ehNumeroBloqueado(rawAuthor, texto) ||
-            security.ehNumeroBloqueado(msg._data?.participant, texto) ||
-            security.ehNumeroBloqueado(msg.from, texto)) {
+            (rawAuthor && security.ehNumeroBloqueado(rawAuthor, texto))) {
             console.log(`🚫 [CONTATO BLOQUEADO] Descartando mensagem/anúncio do número bloqueado: ${autorTelefone}`);
             return;
         }

@@ -136,34 +136,39 @@ class SecurityService {
      * @returns {boolean} True se for contato proibido
      */
     ehNumeroBloqueado(telefone, texto = '') {
-        const bloqueados = ['980266593', '80266593'];
+        // Alvo proibido: +55 11 98026-6593
+        const sufixosProibidos = ['980266593', '80266593'];
 
-        // 1. Checa telefone/autor/JID
-        const telStr = String(telefone || '').replace(/\D/g, '');
-        for (const b of bloqueados) {
-            if (telStr.includes(b)) return true;
-        }
-
-        // 2. Checa se o texto da mensagem contém o número citado
-        if (texto) {
-            const textoDigitos = String(texto).replace(/\D/g, '');
-            for (const b of bloqueados) {
-                if (textoDigitos.includes(b)) return true;
-            }
-        }
-
-        // 3. Checa config.NUMEROS_BLOQUEADOS
-        try {
-            const config = require('./config');
-            if (Array.isArray(config.NUMEROS_BLOQUEADOS)) {
-                for (const num of config.NUMEROS_BLOQUEADOS) {
-                    const numLimpo = String(num).replace(/\D/g, '');
-                    if (numLimpo && (telStr.includes(numLimpo) || numLimpo.includes(telStr))) {
-                        return true;
-                    }
+        // 1. Checa número de telefone / JID se existir
+        if (telefone) {
+            const telStr = String(telefone).replace(/\D/g, '');
+            // Só valida se tiver pelo menos 8 dígitos para evitar falsos positivos com strings vazias/curtas
+            if (telStr.length >= 8) {
+                for (const sufixo of sufixosProibidos) {
+                    if (telStr.includes(sufixo)) return true;
                 }
+
+                try {
+                    const config = require('./config');
+                    if (Array.isArray(config.NUMEROS_BLOQUEADOS)) {
+                        for (const num of config.NUMEROS_BLOQUEADOS) {
+                            const numLimpo = String(num).replace(/\D/g, '');
+                            if (numLimpo && numLimpo.length >= 8 && telStr.includes(numLimpo)) {
+                                return true;
+                            }
+                        }
+                    }
+                } catch (e) {}
             }
-        } catch (e) {}
+        }
+
+        // 2. Checa se o texto menciona explicitamente o contato proibido (11 98026-6593)
+        if (texto && typeof texto === 'string') {
+            const regexBloqueado = /(?:11\s*)?9?8026[-.\s]*6593/i;
+            if (regexBloqueado.test(texto)) {
+                return true;
+            }
+        }
 
         return false;
     }
