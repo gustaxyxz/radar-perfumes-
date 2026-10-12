@@ -183,6 +183,29 @@ class EnjoeiSniper {
             this.intervalId = null;
         }
         console.log(`🟣 [ENJOEI SNIPER] Parado. Total: ${this.totalDetectados}`);
+    async buscarParaCotacao(termo) {
+        try {
+            const products = await this.buscarRecentes(termo);
+            const resultados = [];
+            for (const p of products) {
+                const titulo = p.title || p.name || '';
+                const preco = this.extrairPreco(p);
+                const slug = p.slug || p.id || '';
+                const url = p.url ? (p.url.startsWith('http') ? p.url : `https://www.enjoei.com.br${p.url}`) : `https://www.enjoei.com.br/p/${slug}`;
+                if (preco && preco >= 30) {
+                    resultados.push({
+                        plataforma: 'Enjoei',
+                        titulo,
+                        preco,
+                        url,
+                        data: 'Ativo'
+                    });
+                }
+            }
+            return resultados.sort((x, y) => x.preco - y.preco);
+        } catch (e) {
+            return [];
+        }
     }
 }
 

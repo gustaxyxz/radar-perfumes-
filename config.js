@@ -19,7 +19,7 @@ module.exports = {
     TELEGRAM_ADMIN_CHAT_ID: process.env.TELEGRAM_ADMIN_CHAT_ID || '',
 
     // --------------------------------------------------------
-    // GRUPOS MONITORADOS DO WHATSAPP
+    // GRUPOS MONITORADOS DO WHATSAPP (WHITELIST ESTRITA)
     // --------------------------------------------------------
     // Apenas mensagens desses grupos serão processadas pelo radar.
     GRUPOS_MONITORADOS: [
@@ -27,18 +27,44 @@ module.exports = {
         '⭐Espírito Nicho!',
         '⭐Espírito Designer!',
         'Locus 2.0 Desapego ⚓️',
-        'perfumes'   // grupo de teste
+        'Locus Bate-Papo',
+        '⚓️ Locus Bate-Papo ⚓️',
+        'perfumes'   // grupo de teste isolado (match exato apenas)
     ],
 
     // Palavras-chave ou fragmentos para busca flexível de grupos (caso mudem emojis ou pontuação)
     GRUPOS_ALIAS: [
         'perfumados brasil - desapego',
         'perfumados brasil desapego',
-        'perfumados brasil',
         'espirito nicho',
         'espirito designer',
         'locus 2.0 desapego',
-        'locus desapego'
+        'locus desapego',
+        'locus bate-papo'
+        // ATENÇÃO: NUNCA colocar 'perfumes' como alias aqui, para não capturar "Grupo de Perfumes" genérico!
+    ],
+
+    // --------------------------------------------------------
+    // GRUPOS PROIBIDOS / BLACKLIST EXPLÍCITA
+    // --------------------------------------------------------
+    // Mensagens destes grupos são sumariamente descartadas sem qualquer processamento
+    GRUPOS_BLOQUEADOS: [
+        'Diamante GiftCards #11',
+        'Diamante GiftCards #12',
+        'Diamante GiftCards',
+        'CONEXÃO FALCONE 🦅',
+        'Conexão Falcone',
+        'Falcone',
+        'Grupo do Professor! 👨🏻🏫 #1',
+        'Grupo do Professor',
+        'Grupo de Perfumes', // Grupo genérico bloqueado a pedido do usuário
+        '𝙈𝙊𝘾𝙃𝙄𝙇𝘼𝘿𝔼𝘾𝙍𝙄𝘼𝙉𝘾̧𝘼🎒 vendas',
+        'mochiladecrianca',
+        'TUDO COM 50% OFF,',
+        'TUDO COM 50% OFF',
+        '🅲🆄🅿️🆄🅻🅰️ 🅱️🅸🆁🅾️ 🅵🅰️🅺🅴🆂',
+        'cupula biro fakes',
+        'biro fakes'
     ],
 
     // --------------------------------------------------------

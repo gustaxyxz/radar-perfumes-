@@ -190,6 +190,28 @@ class MercadoLivreSniper {
             this.intervalId = null;
         }
         console.log(`🟡 [ML SNIPER] Parado. Total: ${this.totalDetectados}`);
+    async buscarParaCotacao(termo) {
+        try {
+            const results = await this.buscarRecentes(termo);
+            const resultados = [];
+            for (const r of results) {
+                const titulo = r.title || '';
+                const preco = r.price || 0;
+                const url = r.permalink || '';
+                if (preco && preco >= 30) {
+                    resultados.push({
+                        plataforma: 'Mercado Livre',
+                        titulo,
+                        preco,
+                        url,
+                        data: 'Ativo'
+                    });
+                }
+            }
+            return resultados.sort((x, y) => x.preco - y.preco);
+        } catch (e) {
+            return [];
+        }
     }
 }
 

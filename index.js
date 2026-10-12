@@ -61,8 +61,10 @@ const client = new Client({
 });
 
 // --------------------------------------------------------
-// UTILITÁRIO: VALIDADOR DE GRUPOS
+// UTILITÁRIO: VALIDADOR DE GRUPOS E RESOLUÇÃO DE CONTATOS
 // --------------------------------------------------------
+const lidParaTelefoneMap = new Map();
+
 function normalizarTexto(txt) {
     return (txt || '')
         .toLowerCase()
@@ -71,8 +73,29 @@ function normalizarTexto(txt) {
         .replace(/[^a-z0-9]/g, '');
 }
 
+function ehGrupoBloqueado(nomeGrupo) {
+    if (!nomeGrupo) return false;
+    const norm = normalizarTexto(nomeGrupo);
+
+    if (config.GRUPOS_BLOQUEADOS && Array.isArray(config.GRUPOS_BLOQUEADOS)) {
+        for (const b of config.GRUPOS_BLOQUEADOS) {
+            const normB = normalizarTexto(b);
+            if (normB && norm.includes(normB)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 function ehGrupoMonitorado(nomeGrupo) {
     if (!nomeGrupo) return false;
+
+    // 0. Se for grupo bloqueado explicitamente na blacklist, descarta
+    if (ehGrupoBloqueado(nomeGrupo)) {
+        return false;
+    }
+
     const norm = normalizarTexto(nomeGrupo);
 
     // 1. Grupos configurados pelo nome exato (ignorando case, acentos e emojis)
@@ -80,15 +103,94 @@ function ehGrupoMonitorado(nomeGrupo) {
         if (normalizarTexto(g) === norm) return true;
     }
 
-    // 2. Alias / fragmentos de nome flexível (para quando o grupo muda emoji/pontuação)
+    // 2. Alias / fragmentos de nome flexível (apenas para grupos autorizados)
     if (config.GRUPOS_ALIAS && Array.isArray(config.GRUPOS_ALIAS)) {
         for (const alias of config.GRUPOS_ALIAS) {
-            if (norm.includes(normalizarTexto(alias))) return true;
+            const normAlias = normalizarTexto(alias);
+            if (normAlias && norm.includes(normAlias)) return true;
         }
     }
 
-    // NÃO aceita grupos desconhecidos — filtro estrito para evitar capturar grupos errados
+    // NUNCA aceita grupos desconhecidos — filtro estrito para evitar capturar grupos errados
     return false;
+}
+
+async function resolverTelefoneReal(msg, rawAuthor, clientInstance, chatInstance = null) {
+    if (!rawAuthor && !msg?.author) return '';
+
+    const autorStr = rawAuthor || msg.author || '';
+    const autorLimpo = autorStr.split('@')[0].replace(/\D/g, '');
+
+    // 1. Se já for número brasileiro normal @c.us (com 55 e 12 ou 13 dígitos)
+    if (autorStr.endsWith('@c.us') && autorLimpo.startsWith('55') && (autorLimpo.length === 12 || autorLimpo.length === 13)) {
+        return autorLimpo;
+    }
+
+    // 2. Checa cache de resolução em memória
+    if (lidParaTelefoneMap.has(autorStr)) {
+        return lidParaTelefoneMap.get(autorStr);
+    }
+    if (lidParaTelefoneMap.has(autorLimpo)) {
+        return lidParaTelefoneMap.get(autorLimpo);
+    }
+
+    // 3. Se for @lid ou número com cara de LID (14+ dígitos sem 55 ou iniciado em 82...)
+    const ehLid = autorStr.endsWith('@lid') || (autorLimpo.length >= 14 && !autorLimpo.startsWith('55'));
+
+    // Tenta desmascarar usando a API nativa do WWebJS (client.getContactLidAndPhone)
+    if (clientInstance && typeof clientInstance.getContactLidAndPhone === 'function') {
+        try {
+            const res = await clientInstance.getContactLidAndPhone(autorStr);
+            if (Array.isArray(res) && res[0]?.pn) {
+                const pnNum = res[0].pn.split('@')[0].replace(/\D/g, '');
+                if (pnNum && pnNum.length >= 10) {
+                    console.log(`📱 [LID DESMASCARADO] ${autorStr} -> Telefone Real: +${pnNum}`);
+                    lidParaTelefoneMap.set(autorStr, pnNum);
+                    lidParaTelefoneMap.set(autorLimpo, pnNum);
+                    return pnNum;
+                }
+            }
+        } catch (e) {}
+    }
+
+    // 4. Tenta via msg.getContact()
+    try {
+        if (typeof msg.getContact === 'function') {
+            const contact = await msg.getContact();
+            if (contact) {
+                const num = (contact.number || '').replace(/\D/g, '');
+                if (num && num.startsWith('55') && (num.length === 12 || num.length === 13)) {
+                    lidParaTelefoneMap.set(autorStr, num);
+                    lidParaTelefoneMap.set(autorLimpo, num);
+                    return num;
+                }
+                const cId = (contact.id?._serialized || '').split('@')[0].replace(/\D/g, '');
+                if (cId && cId.startsWith('55') && (cId.length === 12 || cId.length === 13)) {
+                    lidParaTelefoneMap.set(autorStr, cId);
+                    lidParaTelefoneMap.set(autorLimpo, cId);
+                    return cId;
+                }
+            }
+        }
+    } catch (e) {}
+
+    // 5. Tenta inspecionar participantes do chat se disponível
+    try {
+        const chat = chatInstance || (typeof msg.getChat === 'function' ? await msg.getChat() : null);
+        if (chat && Array.isArray(chat.participants)) {
+            for (const p of chat.participants) {
+                const pLid = p.lid?._serialized || p.lid || '';
+                const pUser = (p.id?.user || '').replace(/\D/g, '');
+                if (pLid && pLid === autorStr && pUser.startsWith('55')) {
+                    lidParaTelefoneMap.set(autorStr, pUser);
+                    lidParaTelefoneMap.set(autorLimpo, pUser);
+                    return pUser;
+                }
+            }
+        }
+    } catch (e) {}
+
+    return autorLimpo;
 }
 
 async function carregarChatsComRetry(maxTentativas = 10, esperaMs = 5000) {
@@ -191,7 +293,7 @@ client.on('disconnected', motivo => {
 });
 
 // --------------------------------------------------------
-// UTILITÁRIO: EXTRAÇÃO ROBUSTA DE MÍDIA COM RETRY E THUMBNAIL
+// UTILITÁRIO: EXTRAÇÃO ROBUSTA DE MÍDIA COM RETRY E FALLBACK
 // --------------------------------------------------------
 async function extrairFotoDeMensagem(msg) {
     if (!msg) return null;
@@ -220,53 +322,40 @@ async function extrairFotoDeMensagem(msg) {
         try {
             msg.hasMedia = true;
             const media = await msg.downloadMedia();
-            if (media && media.data) {
-                // Valida o tamanho: base64 de uma foto real tem pelo menos ~10KB (13000 chars)
-                // Thumbnails do WhatsApp costumam ter menos de 5000 chars
-                const tamanhoEstimado = media.data.length * 0.75; // bytes aproximados
-                if (tamanhoEstimado > 5000) {
-                    const mime = media.mimetype || 'image/jpeg';
-                    console.log(`📸 [FOTO OK] downloadMedia sucesso (tentativa ${i}): ~${Math.round(tamanhoEstimado/1024)}KB`);
-                    return {
-                        data: media.data,
-                        mimetype: mime.startsWith('image/') ? mime : 'image/jpeg',
-                        filename: media.filename || 'foto.jpg'
-                    };
-                } else {
-                    console.log(`⚠️ [FOTO THUMBNAIL] Imagem muito pequena (~${Math.round(tamanhoEstimado/1024)}KB), tentando novamente...`);
-                }
+            if (media && media.data && media.data.length > 50) {
+                const tamanhoBytes = Math.round(media.data.length * 0.75);
+                const mime = (media.mimetype && media.mimetype.startsWith('image/')) ? media.mimetype : 'image/jpeg';
+                console.log(`📸 [FOTO OK] downloadMedia sucesso (tentativa ${i}): ~${Math.round(tamanhoBytes/1024)}KB`);
+                return {
+                    data: media.data,
+                    mimetype: mime,
+                    filename: media.filename || 'foto.jpg'
+                };
             }
         } catch (e) {
             console.log(`⏳ [FOTO RETRY ${i}/4] ${e.message || e}`);
         }
-        // Delay progressivo: 1.5s, 3s, 5s entre tentativas
-        const delays = [1500, 3000, 5000];
+        // Delay progressivo entre tentativas
+        const delays = [1000, 2000, 3500];
         if (i < 4) {
-            await new Promise(r => setTimeout(r, delays[i - 1] || 3000));
+            await new Promise(r => setTimeout(r, delays[i - 1] || 2000));
         }
     }
 
     // 2. Fallback de imagem embutida no payload do WhatsApp Web (_data.body)
-    // ATENÇÃO: _data.body pode ser thumbnail de baixíssima qualidade (<5KB)
-    // Só usar se o buffer for grande o suficiente para ser foto real
-    if (msg._data && typeof msg._data.body === 'string' && msg._data.body.length > 6700) {
+    if (msg._data && typeof msg._data.body === 'string' && msg._data.body.length > 100) {
         let rawData = msg._data.body;
         let mime = msg._data.mimetype || 'image/jpeg';
-        const tamanhoBytes = rawData.length * 0.75;
 
         if (rawData.startsWith('data:image/')) {
             const parts = rawData.split(';base64,');
             mime = parts[0].replace('data:', '') || mime;
             rawData = parts[1];
-            if (rawData && rawData.length * 0.75 > 5000) {
-                console.log(`📸 [FOTO BODY] Imagem embutida via data-url (~${Math.round(rawData.length * 0.75 / 1024)}KB)`);
-                return { data: rawData, mimetype: mime, filename: 'foto_whatsapp.jpg' };
-            }
-        } else if (
-            (rawData.startsWith('/9j/') || rawData.startsWith('iVBOR') || rawData.startsWith('UklGR')) &&
-            tamanhoBytes > 5000
-        ) {
-            console.log(`📸 [FOTO BODY] Imagem embutida via _data.body (~${Math.round(tamanhoBytes/1024)}KB)`);
+        }
+
+        if (rawData && rawData.length > 50) {
+            const tamanhoBytes = Math.round(rawData.length * 0.75);
+            console.log(`📸 [FOTO BODY FALLBACK] Imagem recuperada de _data.body (~${Math.round(tamanhoBytes/1024)}KB)`);
             return {
                 data: rawData,
                 mimetype: mime.startsWith('image/') ? mime : 'image/jpeg',
@@ -275,7 +364,7 @@ async function extrairFotoDeMensagem(msg) {
         }
     }
 
-    console.log('⚠️ [FOTO] Não foi possível extrair foto em boa qualidade desta mensagem.');
+    console.log('⚠️ [FOTO] Não foi possível extrair a foto desta mensagem após todas as tentativas.');
     return null;
 }
 
@@ -293,15 +382,27 @@ async function dispararAnuncioConsolidado(chave) {
     try {
         const { origem, nomeGrupo, autorTelefone, autorNome, msgId, texto, fotos, mensagensRefs, ehTipoImagem } = entry;
 
-        // Validação final de contato bloqueado
-        if (security.ehNumeroBloqueado(autorTelefone, texto)) {
-            console.log(`🚫 [CONTATO BLOQUEADO] Descartando anúncio de: ${autorTelefone}`);
+        // 0. Verificação final de grupo bloqueado / não monitorado
+        if (ehGrupoBloqueado(nomeGrupo) || !ehGrupoMonitorado(nomeGrupo)) {
+            console.log(`🚫 [GRUPO NÃO AUTORIZADO] Descartando disparo para grupo: "${nomeGrupo}"`);
             return;
         }
 
-        // Momento perfeito: já se passaram 6 a 8 segundos desde o anúncio!
-        // Todas as mídias pendentes já foram processadas internamente pelo WhatsApp Web.
-        if (mensagensRefs && mensagensRefs.length > 0) {
+        // 1. Validação de contato ou texto bloqueado (golpe PIX, etc.)
+        if (security.ehNumeroBloqueado(autorTelefone, texto)) {
+            console.log(`🚫 [CONTATO OU GOLPE BLOQUEADO] Descartando anúncio de: ${autorTelefone}`);
+            return;
+        }
+
+        // 2. Classificação de texto e anti-golpe
+        const classificacao = matcher.analisarMensagem(texto);
+        if (classificacao.golpe) {
+            console.log(`🚫 [SPAM/GOLPE FINANCEIRO] Mensagem descartada sumariamente: "${texto.substring(0, 50)}..."`);
+            return;
+        }
+
+        // 3. Fallback final para fotos se o array estiver vazio mas houve mídias
+        if (fotos.length === 0 && mensagensRefs && mensagensRefs.length > 0) {
             for (const mRef of mensagensRefs) {
                 const ehMidia = mRef.hasMedia || mRef.type === 'image' || mRef.type === 'album' ||
                                 (mRef._data && (mRef._data.mimetype || '').startsWith('image/')) ||
@@ -315,20 +416,17 @@ async function dispararAnuncioConsolidado(chave) {
                                 fotos.push(mediaExtraida);
                             }
                         }
-                    } catch (e) {
-                        console.warn(`⚠️ [FOTO BUFFER] Falha ao extrair foto de mensagem:`, e.message);
-                    }
+                    } catch (e) {}
                 }
             }
         }
-
-        const classificacao = matcher.analisarMensagem(texto);
-        const dadosExtraidos = matcher.extrairDados(texto);
 
         // Se for bate-papo neutro sem nenhuma foto e sem intenção de compra/venda, descarta
         if (classificacao.tipo === 'NEUTRO' && fotos.length === 0 && !ehTipoImagem) {
             return;
         }
+
+        const dadosExtraidos = matcher.extrairDados(texto);
 
         // Define tipo final:
         // - Se tem classificação clara, usa ela
@@ -339,7 +437,7 @@ async function dispararAnuncioConsolidado(chave) {
             : 'VENDA';
 
         // Texto descritivo para caso de foto sem texto
-        const textoItem = texto || (ehTipoImagem ? '📸 Foto enviada sem texto — verifique manualmente se é procura ou venda!' : '[Sem descrição]');
+        const textoItem = texto || (ehTipoImagem ? '📸 Foto enviada sem texto — verifique se é procura ou desapego!' : '[Sem descrição]');
 
         // Normalização completa do telefone e link wa.me
         const telInfo = security.formatarTelefoneWhatsapp(autorTelefone, entry.rawAuthor);
@@ -422,37 +520,67 @@ client.on('message_create', async msg => {
             return;
         }
 
-        const rawAuthor = msg.author || msg._data?.participant || '';
-        const autorTelefone = rawAuthor ? rawAuthor.split('@')[0] : '';
-        const autorNome = msg._data?.notifyName || autorTelefone || 'Participante';
-        const texto = msg.body?.trim() || '';
-
-        // 0. BLOQUEIO RIGOROSO DE CONTATOS PROIBIDOS (+55 11 98026-6593 etc)
-        if (security.ehNumeroBloqueado(autorTelefone, texto) ||
-            (rawAuthor && security.ehNumeroBloqueado(rawAuthor, texto))) {
-            console.log(`🚫 [CONTATO BLOQUEADO] Descartando mensagem/anúncio do número bloqueado: ${autorTelefone}`);
+        // 0. FILTRO ABSOLUTO DE GRUPOS IGNORADOS / BLACKLIST
+        if (gruposIgnoradosSet.has(origem)) {
             return;
         }
 
-        // 1. Checa se o grupo é autorizado
+        // 1. Identifica ou carrega o nome do grupo com validação estrita
         let nomeGrupo = gruposPermitidosMap.get(origem);
+        let chat = null;
 
         if (!nomeGrupo) {
             try {
-                const chat = await msg.getChat();
-                if (chat && chat.isGroup) {
-                    nomeGrupo = chat.name || 'Grupo de Perfumes';
-                    gruposPermitidosMap.set(origem, nomeGrupo);
-                    database.registrarGrupo(origem, nomeGrupo, chat.participants || []);
-                    console.log(`\n⭐ GRUPO REGISTRADO: "${nomeGrupo}" (ID: ${origem})`);
+                chat = await msg.getChat();
+            } catch (e) {}
+
+            const nomeGrupoDetectado = chat?.name || msg._data?.chat?.name || '';
+
+            // Se for grupo bloqueado ou não for monitorado, adiciona ao Set de ignorados e sai na hora!
+            if (!nomeGrupoDetectado || ehGrupoBloqueado(nomeGrupoDetectado) || !ehGrupoMonitorado(nomeGrupoDetectado)) {
+                gruposIgnoradosSet.add(origem);
+                return;
+            }
+
+            nomeGrupo = nomeGrupoDetectado;
+            gruposPermitidosMap.set(origem, nomeGrupo);
+
+            if (chat && Array.isArray(chat.participants)) {
+                database.registrarGrupo(origem, nomeGrupo, chat.participants);
+                // Alimenta cache de mapeamento LID -> Telefone real com os membros do grupo
+                for (const p of chat.participants) {
+                    const tel = (p.id?.user || '').replace(/\D/g, '');
+                    const lid = p.lid?._serialized || p.lid || '';
+                    if (lid && tel && tel.startsWith('55')) {
+                        lidParaTelefoneMap.set(lid, tel);
+                        lidParaTelefoneMap.set(lid.split('@')[0], tel);
+                    }
                 }
-            } catch (e) {
-                nomeGrupo = msg._data?.chat?.name || 'Grupo de Perfumes';
-                gruposPermitidosMap.set(origem, nomeGrupo);
+            }
+            console.log(`\n⭐ GRUPO AUTORIZADO REGISTRADO: "${nomeGrupo}" (ID: ${origem})`);
+        } else {
+            // Se já estava no map mas foi colocado na blacklist posteriormente
+            if (ehGrupoBloqueado(nomeGrupo) || !ehGrupoMonitorado(nomeGrupo)) {
+                gruposIgnoradosSet.add(origem);
+                gruposPermitidosMap.delete(origem);
+                return;
             }
         }
 
-        // 2. Identifica se a mensagem contém imagem ou mídia
+        const rawAuthor = msg.author || msg._data?.participant || '';
+        const autorNome = msg._data?.notifyName || 'Participante';
+        const texto = msg.body?.trim() || '';
+
+        // 2. RESOLUÇÃO DE TELEFONE REAL (Desmascara @lid para o número real brasileiro)
+        const autorTelefone = await resolverTelefoneReal(msg, rawAuthor, client, chat);
+
+        // 3. BLOQUEIO RIGOROSO DE CONTATOS PROIBIDOS (+55 11 98026-6593 etc) OU GOLPES FINANCEIROS (SICOOB PJ, PIX)
+        if (security.ehNumeroBloqueado(autorTelefone, texto) ||
+            (rawAuthor && security.ehNumeroBloqueado(rawAuthor, texto))) {
+            return;
+        }
+
+        // 4. Identifica se a mensagem contém imagem ou mídia
         const ehTipoImagem = msg.hasMedia ||
             msg.type === 'image' ||
             msg.type === 'album' ||
@@ -460,10 +588,13 @@ client.on('message_create', async msg => {
             (msg._data && Boolean(msg._data.directPath)) ||
             (msg._data && Boolean(msg._data.mediaKey));
 
-        // 3. Classificação preliminar de texto
+        // 5. Classificação preliminar de texto
         const classificacao = matcher.analisarMensagem(texto);
+        if (classificacao.golpe) {
+            return;
+        }
 
-        const chave = `${origem}_${autorTelefone}`;
+        const chave = `${origem}_${autorTelefone || rawAuthor}`;
         const pendente = bufferAnunciosPendentes.get(chave);
 
         // Se for bate-papo comum neutro sem imagem e sem anúncio pendente, descarta
@@ -490,14 +621,20 @@ client.on('message_create', async msg => {
             }
         }
 
-        // 4. Agrupamento no buffer (acumula referências de fotos e concatena textos)
+        // 6. Agrupamento no buffer (acumula referências de fotos e concatena textos)
         if (pendente) {
             clearTimeout(pendente.timer);
             pendente.mensagensRefs.push(msg);
 
             if (ehTipoImagem) {
                 pendente.ehTipoImagem = true;
-                console.log(`📸 Imagem adicional anexada ao buffer de ${autorNome} (Total mídias/mensagens: ${pendente.mensagensRefs.length})`);
+                // Baixa foto em background imediatamente para não perder
+                extrairFotoDeMensagem(msg).then(f => {
+                    if (f && f.data) {
+                        const ja = pendente.fotos.some(itemF => itemF.data.substring(0, 50) === f.data.substring(0, 50));
+                        if (!ja) pendente.fotos.push(f);
+                    }
+                }).catch(() => {});
             }
 
             if (texto) {
@@ -513,9 +650,8 @@ client.on('message_create', async msg => {
             return;
         }
 
-        // Novo anúncio detectado: inicia buffer de 8 a 10 segundos para permitir download interno pelo WhatsApp
-        // Imagens com álbum precisam de mais tempo para todas as fotos chegarem e serem decriptadas
-        const tempoEspera = ehTipoImagem ? (texto ? 8000 : 10000) : 6000;
+        // Novo anúncio detectado: inicia buffer
+        const tempoEspera = ehTipoImagem ? (texto ? 7000 : 9000) : 5000;
         const novoEntry = {
             origem,
             nomeGrupo,
@@ -529,6 +665,15 @@ client.on('message_create', async msg => {
             ehTipoImagem,
             timer: null
         };
+
+        // Se tem imagem, já inicia o download imediatamente em background!
+        if (ehTipoImagem) {
+            extrairFotoDeMensagem(msg).then(f => {
+                if (f && f.data) {
+                    novoEntry.fotos.push(f);
+                }
+            }).catch(() => {});
+        }
 
         novoEntry.timer = setTimeout(() => dispararAnuncioConsolidado(chave), tempoEspera);
         bufferAnunciosPendentes.set(chave, novoEntry);

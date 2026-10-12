@@ -210,6 +210,29 @@ class OlxSniper {
             this.intervalId = null;
         }
         console.log(`🔵 [OLX SNIPER] Parado. Total detectados: ${this.totalDetectados}`);
+    async buscarParaCotacao(termo) {
+        try {
+            const ads = await this.buscarAnunciosRecentes(termo);
+            const resultados = [];
+            for (const a of ads) {
+                const titulo = a.title || a.subject || '';
+                const preco = this.extrairPreco(a);
+                const id = a.listId || a.id;
+                const url = a.url || a.linkData?.href || `https://www.olx.com.br/anuncio/${id}`;
+                if (preco && preco >= 30) {
+                    resultados.push({
+                        plataforma: 'OLX',
+                        titulo,
+                        preco,
+                        url,
+                        data: a.date ? new Date(a.date * 1000).toLocaleDateString('pt-BR') : 'Recente'
+                    });
+                }
+            }
+            return resultados.sort((x, y) => x.preco - y.preco);
+        } catch (e) {
+            return [];
+        }
     }
 }
 

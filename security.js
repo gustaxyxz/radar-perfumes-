@@ -168,6 +168,31 @@ class SecurityService {
             if (regexBloqueado.test(texto)) {
                 return true;
             }
+
+            // 3. BLOQUEIO DE GOLPES FINANCEIROS, ESQUEMAS DE PIX, CONTAS PJ E SPAM
+            const padroesGolpeFinanceiro = [
+                /\bsicoob\b/i,
+                /\blimite\s+pix\b/i,
+                /\bfavorecidos\b/i,
+                /\bencho\s+o\s+limite\b/i,
+                /\bconta\s+pj\b/i,
+                /\bbanco\s+inter\s+pj\b/i,
+                /\besquema\s+pix\b/i,
+                /\btrampo\s+pix\b/i,
+                /\bnota\s+fake\b/i,
+                /\bc[eé]dula(?:s)?\s+fake\b/i,
+                /\bcart[aã]o\s+clonado\b/i,
+                /\bcc\s+virada\b/i,
+                /\bvirada\s+de\s+saldo\b/i,
+                /\bgift\s*cards?\b/i
+            ];
+
+            for (const p of padroesGolpeFinanceiro) {
+                if (p.test(texto)) {
+                    console.log(`🚫 [GOLPE FINANCEIRO BLOQUEADO] Detectado termo suspeito: ${p}`);
+                    return true;
+                }
+            }
         }
 
         return false;
@@ -175,7 +200,7 @@ class SecurityService {
 
     /**
      * Normaliza e formata telefone para link direto do WhatsApp (wa.me) e exibição amigável
-     * Trata contas antigas sem 9º dígito, DDI 55, sufixos de dispositivo (:12) e validação real
+     * Trata contas antigas sem 9º dígito, DDI 55, sufixos de dispositivo (:12), LID do WhatsApp e validação real
      */
     formatarTelefoneWhatsapp(telefoneBruto, autorRaw = '') {
         let digitos = String(telefoneBruto || '').replace(/\D/g, '');
@@ -184,18 +209,36 @@ class SecurityService {
             digitos = String(autorRaw).split('@')[0].replace(/\D/g, '');
         }
 
-        // Se for ID de dispositivo longo ou LID, extrai padrão brasileiro se existir
+        // Se for identificado como LID (Linked Device / WhatsApp Privacy ID, ex: 82283520335922)
+        const ehLidRaw = (autorRaw && String(autorRaw).includes('@lid')) ||
+                         (digitos.length >= 14 && !digitos.startsWith('55'));
+
+        // Se for ID longo que contém número brasileiro dentro (ex: 556692505918...)
         if (digitos.length > 15) {
             const match55 = digitos.match(/55\d{10,11}/);
-            if (match55) digitos = match55[0];
+            if (match55) {
+                digitos = match55[0];
+            }
         }
 
         if (!digitos || digitos.length < 8) {
             return {
                 valido: false,
+                ehLid: false,
                 numeroLimpo: '',
                 formatado: 'Não identificado',
                 linkWpp: ''
+            };
+        }
+
+        // Se for LID puro não desmascarado
+        if (ehLidRaw && !digitos.startsWith('55')) {
+            return {
+                valido: false,
+                ehLid: true,
+                numeroLimpo: digitos,
+                formatado: `🆔 WhatsApp LID: ${digitos} (Privacidade ativada)`,
+                linkWpp: '' // Não gera link fake quebrado com DDI internacional
             };
         }
 
@@ -206,27 +249,31 @@ class SecurityService {
 
         // Se for número BR de 12 dígitos começando com 55 (55 + DDD + 8 dígitos)
         // No Brasil celulares têm 9 dígitos. Muitas contas do WhatsApp guardam sem o 9 no JID antigo.
+        let digitosComNove = digitos;
         if (digitos.length === 12 && digitos.startsWith('55')) {
             const ddd = parseInt(digitos.slice(2, 4), 10);
             const primeiroDigito = digitos[4];
-            if (ddd >= 11 && ddd <= 99 && ['6', '7', '8', '9'].includes(primeiroDigito)) {
-                digitos = digitos.slice(0, 4) + '9' + digitos.slice(4);
+            if (ddd >= 11 && ddd <= 99) {
+                digitosComNove = digitos.slice(0, 4) + '9' + digitos.slice(4);
             }
         }
 
-        // Formatação visual amigável: +55 (11) 98765-4321
-        let formatado = '+' + digitos;
-        if (digitos.startsWith('55') && digitos.length === 13) {
-            formatado = `+55 (${digitos.slice(2, 4)}) ${digitos.slice(4, 9)}-${digitos.slice(9)}`;
-        } else if (digitos.startsWith('55') && digitos.length === 12) {
-            formatado = `+55 (${digitos.slice(2, 4)}) ${digitos.slice(4, 8)}-${digitos.slice(8)}`;
+        // Formatação visual amigável: +55 (66) 99250-5918
+        let formatado = '+' + digitosComNove;
+        if (digitosComNove.startsWith('55') && digitosComNove.length === 13) {
+            formatado = `+55 (${digitosComNove.slice(2, 4)}) ${digitosComNove.slice(4, 9)}-${digitosComNove.slice(9)}`;
+        } else if (digitosComNove.startsWith('55') && digitosComNove.length === 12) {
+            formatado = `+55 (${digitosComNove.slice(2, 4)}) ${digitosComNove.slice(4, 8)}-${digitosComNove.slice(8)}`;
         }
 
-        const linkWpp = `https://wa.me/${digitos}`;
+        // Link oficial wa.me usando o número com 9 dígitos (padrão internacional)
+        const linkWpp = `https://wa.me/${digitosComNove}`;
 
         return {
             valido: true,
-            numeroLimpo: digitos,
+            ehLid: false,
+            numeroLimpo: digitosComNove,
+            numeroOriginal: digitos,
             formatado,
             linkWpp
         };

@@ -74,6 +74,27 @@ class TelegramService {
     }
 
     // ----------------------------------------------------
+    // FIXAR MENSAGEM NO TOPO DO GRUPO (PIN MESSAGE)
+    // ----------------------------------------------------
+    async fixarMensagem(chatId, messageId) {
+        if (!chatId || !messageId) return null;
+        try {
+            const resp = await fetch(`https://api.telegram.org/bot${this.token}/pinChatMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: chatId,
+                    message_id: messageId,
+                    disable_notification: false // Alerta sonoro obrigatório no celular de todos!
+                })
+            });
+            return await resp.json();
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // ----------------------------------------------------
     // ENVIAR FOTO COM LEGENDA (URL, BASE64 OU BUFFER)
     // ----------------------------------------------------
     async enviarFoto(chatId, fotoInput, mimeType = 'image/jpeg', legenda = '', replyMarkup = null) {
@@ -383,12 +404,22 @@ class TelegramService {
         if (fotos.length === 0 && item?.fotos?.length > 0) fotos = item.fotos;
         else if (fotos.length === 0 && item?.foto) fotos = [item.foto];
 
+        let resEnvio = null;
         if (fotos.length > 1) {
-            await this.enviarAlbum(this.parceiroChatId, fotos, texto, replyMarkup);
+            resEnvio = await this.enviarAlbum(this.parceiroChatId, fotos, texto, replyMarkup);
         } else if (fotos.length === 1) {
-            await this.enviarFoto(this.parceiroChatId, fotos[0], fotos[0]?.mimetype || 'image/jpeg', texto, replyMarkup);
+            resEnvio = await this.enviarFoto(this.parceiroChatId, fotos[0], fotos[0]?.mimetype || 'image/jpeg', texto, replyMarkup);
         } else {
-            await this.enviarMensagem(this.parceiroChatId, texto, 'HTML', replyMarkup);
+            resEnvio = await this.enviarMensagem(this.parceiroChatId, texto, 'HTML', replyMarkup);
+        }
+
+        // Se for OPORTUNIDADE DE OURO, fixa no topo do Telegram para ser IMPOSSÍVEL NÃO VER!
+        if (ehOuro && resEnvio) {
+            const msgId = resEnvio.result?.message_id || (Array.isArray(resEnvio.result) ? resEnvio.result[0]?.message_id : null);
+            if (msgId) {
+                await this.fixarMensagem(this.parceiroChatId, msgId);
+                console.log(`📌 [PIN] Oportunidade de Ouro fixada no topo do Telegram! (Msg ID: ${msgId})`);
+            }
         }
     }
 
@@ -492,7 +523,11 @@ ${escapeHtml(item.texto)}`;
         ];
 
         // Envia diretamente no Grupo da Operação
-        await this.enviarMensagem(this.parceiroChatId, textoMatch, 'HTML', { inline_keyboard: botoesMatch });
+        const resMatch = await this.enviarMensagem(this.parceiroChatId, textoMatch, 'HTML', { inline_keyboard: botoesMatch });
+        if (resMatch?.result?.message_id) {
+            await this.fixarMensagem(this.parceiroChatId, resMatch.result.message_id);
+            console.log(`📌 [PIN] Match de arbitragem fixado no topo do Telegram! (Msg ID: ${resMatch.result.message_id})`);
+        }
 
         // Envia também no privado do Admin se for diferente do grupo
         if (this.adminChatId && String(this.adminChatId) !== String(this.parceiroChatId)) {
@@ -514,7 +549,7 @@ ${escapeHtml(item.texto)}`;
         }
         this.pollingAtivo = true;
         this._executarCicloPolling();
-        console.log('🤖 [TELEGRAM] Escuta de comandos (/status, /buscar, /liberar, /admin) ativada.');
+        console.log('🤖 [TELEGRAM] Escuta de comandos (/status, /buscar, /cotar, /preco, /liberar, /admin) ativada.');
     }
 
     async _executarCicloPolling() {
@@ -556,11 +591,13 @@ ${escapeHtml(item.texto)}`;
         if (comando === '/ajuda' || comando === '/help' || comando === '/start') {
             const ajuda = `🧭 <b>COMANDOS DO RADAR DE PERFUMES:</b>
 
+• <code>/cotar [perfume]</code> - Cotação em tempo real (WhatsApp, OLX, ML, Enjoei)
+• <code>/preco [perfume]</code> - Análise de preço médio e margem de revenda
+• <code>/buscar [perfume]</code> - Busca pessoas vendendo ou procurando nos grupos
 • <code>/status</code> - Visão geral de ofertas e demandas ativas
 • <code>/grupos</code> - Lista os grupos monitorados e membros indexados
-• <code>/buscar [perfume]</code> - Busca pessoas vendendo ou procurando (ex: <i>/buscar 212</i>)
 • <code>/liberar [código]</code> - Libera contato de um anúncio (ex: <i>/liberar OF-XXXX</i>)
-• <code>/admin</code> - Define seu chat privado como painel mestre de administrador permanente`;
+• <code>/admin</code> - Define seu chat privado como painel mestre de administrador`;
             await this.enviarMensagem(chatId, ajuda);
         }
         else if (comando === '/admin') {
@@ -608,9 +645,94 @@ ${escapeHtml(item.texto)}`;
             }
             await this.enviarMensagem(chatId, msgGrupos);
         }
+        else if (comando === '/cotar' || comando === '/preco') {
+            if (!argumento) {
+                await this.enviarMensagem(chatId, '💡 Use: <code>/cotar [nome do perfume]</code>\nExemplo: <code>/cotar summer hammer</code> ou <code>/cotar sauvage</code>');
+                return;
+            }
+
+            await this.enviarMensagem(chatId, `⏳ <b>PESQUISANDO MERCADO EM TEMPO REAL...</b>\nConsultando Grupos do WhatsApp, OLX, Mercado Livre e Enjoei para: <b>"${argumento.toUpperCase()}"</b>`);
+
+            try {
+                const sniperOlx = require('./sniper-olx');
+                const sniperMl = require('./sniper-ml');
+                const sniperEnjoei = require('./sniper-enjoei');
+
+                // Executa consultas concorrentes em todas as plataformas
+                const [ofertasWpp, adsOlx, adsMl, adsEnjoei] = await Promise.all([
+                    Promise.resolve(this.database ? this.database.buscarOfertasParaPerfume(argumento, 20) : []),
+                    sniperOlx.buscarParaCotacao(argumento).catch(() => []),
+                    sniperMl.buscarParaCotacao(argumento).catch(() => []),
+                    sniperEnjoei.buscarParaCotacao(argumento).catch(() => [])
+                ]);
+
+                // Consolida todos os preços válidos
+                const todosAnuncios = [];
+
+                for (const of of ofertasWpp) {
+                    if (of.preco && of.preco > 30) {
+                        todosAnuncios.push({
+                            plataforma: `WhatsApp (${of.grupoNome || 'Grupo'})`,
+                            titulo: of.perfume || of.texto?.substring(0, 40) || 'Perfume',
+                            preco: of.preco,
+                            url: of.linkWhatsapp || '',
+                            autor: of.autor
+                        });
+                    }
+                }
+
+                todosAnuncios.push(...adsOlx);
+                todosAnuncios.push(...adsMl);
+                todosAnuncios.push(...adsEnjoei);
+
+                if (todosAnuncios.length === 0) {
+                    await this.enviarMensagem(chatId, `❌ Nenhum anúncio ativo encontrado para <b>"${argumento.toUpperCase()}"</b> no momento nas plataformas pesquisadas.`);
+                    return;
+                }
+
+                // Cálculos estatísticos
+                const precos = todosAnuncios.map(a => a.preco).sort((a, b) => a - b);
+                const menorPreco = precos[0];
+                const maiorPreco = precos[precos.length - 1];
+                const somaPrecos = precos.reduce((acc, p) => acc + p, 0);
+                const precoMedio = Math.round(somaPrecos / precos.length);
+
+                // Sugestão para arbitragem: comprar com pelo menos 20% abaixo da média para revender com lucro
+                const tetoCompraRecomendado = Math.round(precoMedio * 0.75);
+                const potencialLucro = Math.max(50, Math.round(precoMedio - menorPreco));
+
+                // Monta painel
+                let painel = `📊 <b>COTAÇÃO DE MERCADO: "${argumento.toUpperCase()}"</b>\n`;
+                painel += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+                painel += `💰 <b>Menor Preço Encontrado:</b> <b>R$ ${menorPreco}</b>\n`;
+                painel += `📈 <b>Preço Médio de Mercado:</b> <b>R$ ${precoMedio}</b>\n`;
+                painel += `🏷️ <b>Maior Preço Anunciado:</b> <b>R$ ${maiorPreco}</b>\n`;
+                painel += `📦 <b>Total de Anúncios Ativos:</b> <b>${todosAnuncios.length}</b>\n\n`;
+
+                painel += `🎯 <b>ESTRATÉGIA DE LUCRO:</b>\n`;
+                painel += `• <b>Pagar no Máximo:</b> <b>R$ ${tetoCompraRecomendado}</b> (para ter boa margem)\n`;
+                painel += `• <b>Preço Sugerido de Venda:</b> <b>R$ ${precoMedio}</b>\n`;
+                painel += `• <b>Margem de Lucro Estimada:</b> <b>R$ ${potencialLucro}+</b>\n`;
+                painel += `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+                painel += `🛒 <b>MELHORES OFERTAS ATIVAS AGORA:</b>\n`;
+                // Top 5 anúncios mais baratos
+                const topOfertas = todosAnuncios.sort((a, b) => a.preco - b.preco).slice(0, 5);
+                for (const o of topOfertas) {
+                    const linkFormatado = o.url ? `<a href="${o.url}">Abrir anúncio</a>` : 'No WhatsApp';
+                    painel += `• <b>R$ ${o.preco}</b> [${o.plataforma}] - ${escapeHtml(o.titulo.substring(0, 35))} (${linkFormatado})\n`;
+                }
+
+                await this.enviarMensagem(chatId, painel);
+
+            } catch (err) {
+                console.error('❌ Erro na cotação:', err);
+                await this.enviarMensagem(chatId, '⚠️ Erro ao consultar algumas plataformas de busca no momento.');
+            }
+        }
         else if (comando === '/buscar') {
             if (!this.database || !argumento) {
-                await this.enviarMensagem(chatId, '💡 Use: <code>/buscar [nome do perfume]</code> (ex: <code>/buscar sauvage</code>)');
+                await this.enviarMensagem(chatId, '💡 Use: <code>/buscar [nome do perfume]</code> (ex: <code>/buscar sauvage</code>)\nOu use <code>/cotar [perfume]</code> para cotação em todas as plataformas.');
                 return;
             }
 

@@ -47,6 +47,8 @@ const LISTA_PERFUMES = [
     // Mancera & Montale
     'CEDRAT BOISE', 'INTENSE CEDRAT BOISE', 'RED TOBACCO', 'INSTANT CRUSH', 'INTENSE CAFE', 'ARABIAN TONKA',
     // Outros Nicho / Designer Famosos
+    // Lorenzo Pazzaglia & Nicho Moderno
+    'SUMMER HAMMER', 'BLACK SEA', 'VAN SEA', 'CHERRY INK', 'EVIL ANGEL', 'CARBONARA', 'PAZZAGLIA',
     'BACCARAT ROUGE 540', 'BR540', 'INTERLUDE', 'REFLECTION MAN', 'AMOUAGE',
     'PRADA L\'HOMME', 'PRADA L\'HOMME INTENSE', 'LUNA ROSSA BLACK', 'LUNA ROSSA CARBON', 'PRADA PARADOXE',
     'L\'HOMME IDEAL EDP', 'L\'HOMME IDEAL EXTREME', 'TERRE D\'HERMES', 'H24',
@@ -110,6 +112,12 @@ const TABELA_MERCADO_REFERENCIA = {
     'ANI': { medio: 980, minimoLucro: 780, maximoRevenda: 1100 },
     'WULONG CHA': { medio: 980, minimoLucro: 780, maximoRevenda: 1100 },
     'FAN YOUR FLAMES': { medio: 950, minimoLucro: 750, maximoRevenda: 1080 },
+
+    // Lorenzo Pazzaglia
+    'SUMMER HAMMER': { medio: 1100, minimoLucro: 850, maximoRevenda: 1250 },
+    'BLACK SEA': { medio: 1050, minimoLucro: 800, maximoRevenda: 1200 },
+    'VAN SEA': { medio: 1050, minimoLucro: 800, maximoRevenda: 1200 },
+    'CHERRY INK': { medio: 1100, minimoLucro: 850, maximoRevenda: 1250 },
 
     // Jean Paul Gaultier
     'ULTRA MALE': { medio: 420, minimoLucro: 330, maximoRevenda: 480 },
@@ -198,6 +206,27 @@ class Matcher {
         }
 
         const t = texto.toLowerCase();
+
+        // 0. BLOQUEIO DE GOLPES FINANCEIROS E SPAM BANCÁRIO / PIX
+        const termosGolpe = [
+            /\bsicoob\b/i,
+            /\blimite\s+pix\b/i,
+            /\bfavorecidos\b/i,
+            /\bencho\s+o\s+limite\b/i,
+            /\bconta\s+pj\b/i,
+            /\bbanco\s+inter\s+pj\b/i,
+            /\besquema\s+pix\b/i,
+            /\btrampo\s+pix\b/i,
+            /\bnota\s+fake\b/i,
+            /\bc[eé]dula(?:s)?\s+fake\b/i,
+            /\bcart[aã]o\s+clonado\b/i,
+            /\bcc\s+virada\b/i,
+            /\bvirada\s+de\s+saldo\b/i,
+            /\bgift\s*cards?\b/i
+        ];
+        if (termosGolpe.some(r => r.test(t))) {
+            return { tipo: 'NEUTRO', golpe: true, motivo: 'SPAM_FINANCEIRO', confianca: 0 };
+        }
 
         // Mensagens de bate-papo que nunca são anúncios
         const ehBatepapo = [
