@@ -224,49 +224,58 @@ async function extrairFotoDeMensagem(msg) {
         }
     }
 
-    // 1. Tenta baixar via downloadMedia (3 tentativas com delay progressivo)
-    for (let i = 1; i <= 3; i++) {
+    // 1. Tenta baixar via downloadMedia (4 tentativas com delay progressivo)
+    for (let i = 1; i <= 4; i++) {
         try {
             msg.hasMedia = true;
             const media = await msg.downloadMedia();
-            if (media && media.data && media.data.length > 20) {
-                const mime = media.mimetype || 'image/jpeg';
-                return {
-                    data: media.data,
-                    mimetype: mime.startsWith('image/') ? mime : 'image/jpeg',
-                    filename: media.filename || 'foto.jpg'
-                };
+            if (media && media.data) {
+                // Valida o tamanho: base64 de uma foto real tem pelo menos ~10KB (13000 chars)
+                // Thumbnails do WhatsApp costumam ter menos de 5000 chars
+                const tamanhoEstimado = media.data.length * 0.75; // bytes aproximados
+                if (tamanhoEstimado > 5000) {
+                    const mime = media.mimetype || 'image/jpeg';
+                    console.log(`📸 [FOTO OK] downloadMedia sucesso (tentativa ${i}): ~${Math.round(tamanhoEstimado/1024)}KB`);
+                    return {
+                        data: media.data,
+                        mimetype: mime.startsWith('image/') ? mime : 'image/jpeg',
+                        filename: media.filename || 'foto.jpg'
+                    };
+                } else {
+                    console.log(`⚠️ [FOTO THUMBNAIL] Imagem muito pequena (~${Math.round(tamanhoEstimado/1024)}KB), tentando novamente...`);
+                }
             }
         } catch (e) {
-            // Silencioso na retentativa
+            console.log(`⏳ [FOTO RETRY ${i}/4] ${e.message || e}`);
         }
-        if (i < 3) {
-            await new Promise(r => setTimeout(r, 800 * i));
+        // Delay progressivo: 1.5s, 3s, 5s entre tentativas
+        const delays = [1500, 3000, 5000];
+        if (i < 4) {
+            await new Promise(r => setTimeout(r, delays[i - 1] || 3000));
         }
     }
 
     // 2. Fallback de imagem embutida no payload do WhatsApp Web (_data.body)
-    // No WhatsApp Web, quando a foto chega, o store do navegador embute o base64 da imagem
-    if (msg._data && typeof msg._data.body === 'string' && msg._data.body.length > 50) {
+    // ATENÇÃO: _data.body pode ser thumbnail de baixíssima qualidade (<5KB)
+    // Só usar se o buffer for grande o suficiente para ser foto real
+    if (msg._data && typeof msg._data.body === 'string' && msg._data.body.length > 6700) {
         let rawData = msg._data.body;
         let mime = msg._data.mimetype || 'image/jpeg';
+        const tamanhoBytes = rawData.length * 0.75;
 
         if (rawData.startsWith('data:image/')) {
             const parts = rawData.split(';base64,');
             mime = parts[0].replace('data:', '') || mime;
             rawData = parts[1];
-            return {
-                data: rawData,
-                mimetype: mime,
-                filename: 'foto_whatsapp.jpg'
-            };
+            if (rawData && rawData.length * 0.75 > 5000) {
+                console.log(`📸 [FOTO BODY] Imagem embutida via data-url (~${Math.round(rawData.length * 0.75 / 1024)}KB)`);
+                return { data: rawData, mimetype: mime, filename: 'foto_whatsapp.jpg' };
+            }
         } else if (
-            rawData.startsWith('/9j/') || // JPEG magic bytes
-            rawData.startsWith('iVBOR') || // PNG magic bytes
-            rawData.startsWith('UklGR') || // WebP magic bytes
-            (msg._data.type === 'image' && /^[A-Za-z0-9+/=]{100,}$/.test(rawData.substring(0, 200)))
+            (rawData.startsWith('/9j/') || rawData.startsWith('iVBOR') || rawData.startsWith('UklGR')) &&
+            tamanhoBytes > 5000
         ) {
-            console.log('📸 [FOTO] Foto recuperada com sucesso via payload embutido do WhatsApp Web (_data.body)!');
+            console.log(`📸 [FOTO BODY] Imagem embutida via _data.body (~${Math.round(tamanhoBytes/1024)}KB)`);
             return {
                 data: rawData,
                 mimetype: mime.startsWith('image/') ? mime : 'image/jpeg',
@@ -275,6 +284,7 @@ async function extrairFotoDeMensagem(msg) {
         }
     }
 
+    console.log('⚠️ [FOTO] Não foi possível extrair foto em boa qualidade desta mensagem.');
     return null;
 }
 
@@ -502,8 +512,9 @@ client.on('message_create', async msg => {
             return;
         }
 
-        // Novo anúncio detectado: inicia buffer de 6 a 7 segundos para permitir download interno pelo WhatsApp
-        const tempoEspera = (ehTipoImagem && !texto) ? 7000 : 6000;
+        // Novo anúncio detectado: inicia buffer de 8 a 10 segundos para permitir download interno pelo WhatsApp
+        // Imagens com álbum precisam de mais tempo para todas as fotos chegarem e serem decriptadas
+        const tempoEspera = ehTipoImagem ? (texto ? 8000 : 10000) : 6000;
         const novoEntry = {
             origem,
             nomeGrupo,

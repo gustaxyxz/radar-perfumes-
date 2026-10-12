@@ -199,7 +199,16 @@ class Matcher {
 
         const t = texto.toLowerCase();
 
-        // Padrões de procura / compra
+        // Mensagens de bate-papo que nunca são anúncios
+        const ehBatepapo = [
+            /^(oi|olá|olá!|e aí|boa|bom dia|boa tarde|boa noite|obrigad|valeu|vlw|ok|sim|não|ta|tá|tmb|tb|haha|rsrs|kk|kkk|k+|pós|bora|vai|vem|vai|só|bah|nossa|caramba|uau|top|exato|certeza|perfeito|amei|adorei|me manda|me passa|chama|entendi)$/i,
+            /^(faz sentido|concordo|verdade|não sabia|boa pergunta|boa dica|boa informação)$/i
+        ];
+        if (ehBatepapo.some(r => r.test(t.trim()))) {
+            return { tipo: 'NEUTRO', confianca: 0 };
+        }
+
+        // Padrões de procura / compra — com palavra-limite para evitar falsos positivos
         const padroesCompra = [
             /\bprocuro\b/,
             /\bbusco\b/,
@@ -213,25 +222,32 @@ class Matcher {
             /\bquem\s+tiver\b/,
             /\bquero\s+comprar\b/,
             /\b[aà]\s+procura\b/,
-            /\binteresse\s+em\b/
+            /\binteresse\s+em\b/,
+            /\btem\s+pra\s+vender\b/,
+            /\btem\s+algum\b/
         ];
 
-        // Padrões de venda / desapego
+        // Padrões de venda / desapego — mais restritivos para evitar bate-papo comum
         const padroesVenda = [
             /\bvendo\b/,
             /\bvenda\b/,
             /\bdesapego\b/,
             /\bdesapegando\b/,
-            /\bpasso\b/,
-            /\bpassando\b/,
             /\bdispon[ií]vel\b/,
             /\bdisp\b/,
-            /\br\$\s*\d+/,
+            /\br\$\s*\d+/,                // preço com R$
             /\b\d+\s*reais\b/,
-            /\bparcial\b/,
+            /\b\d+\s*conto\b/,
+            /\bparcial\b/,               // "parcial" só faz sentido em desapego
             /\blacrado\b/,
             /\btester\b/,
-            /\bfracionado\b/
+            /\bfracionado\b/,
+            // "passando" só é venda se vier junto de perfume/ml/R$
+            /\bpassando\b.{0,80}(?:r\$|\d+ml|\d+\s*ml|\bdesapeg|\bperfume|\bnicho|\bdecant)/,
+            /(?:r\$|\d+ml|\d+\s*ml|\bperfume|\bnicho|\bdecant).{0,80}\bpassando\b/,
+            // "passo" só é venda se vier acompanhado de preço, ml ou contexto de desapego
+            /\bpasso\b.{0,60}(?:r\$|\d+ml|\d+\s*ml|\bpor\s+\d|\bdesapeg)/,
+            /(?:r\$|\d+ml|\bdesapeg).{0,60}\bpasso\b/
         ];
 
         const ehCompra = padroesCompra.some(regex => regex.test(t));
@@ -246,16 +262,25 @@ class Matcher {
         }
 
         if (ehCompra && ehVenda) {
-            // Se tem "procuro" no início, prioriza compra
-            if (t.includes('procuro') || t.includes('busco') || t.includes('alguém tem') || t.includes('alguem tem')) {
-                return { tipo: 'COMPRA', confianca: 0.8 };
+            // Heurística: se a mensagem começa com palavras de busca, provavelmente é COMPRA
+            const inicioCompra = /^(procuro|busco|al(gu[eé]m|gém)|quem\s+tem|quero\s+comprar)/i.test(t.trim());
+            if (inicioCompra) return { tipo: 'COMPRA', confianca: 0.85 };
+
+            // Se o texto tem preço anunciado claramente, é VENDA
+            if (/r\$\s*\d+/.test(t) || /\d+\s*reais/.test(t)) {
+                return { tipo: 'VENDA', confianca: 0.85 };
             }
-            return { tipo: 'VENDA', confianca: 0.8 };
+
+            return { tipo: 'VENDA', confianca: 0.75 };
         }
 
-        // Se tem preço no texto e alguma menção a perfume/ml, provavelmente é anúncio
-        if (/\br\$\s*\d+/.test(t) || /\b\d{2,4}\s*(reais|conto)\b/.test(t)) {
-            return { tipo: 'VENDA', confianca: 0.7 };
+        // Se tem preço e alguma menção a perfume/ml, provavelmente é anúncio
+        if (/r\$\s*\d+/.test(t) || /\b\d{2,4}\s*(reais|conto)\b/.test(t)) {
+            // Só classifica se tiver algum contexto de perfumaria para não pegar qualquer mensagem com número
+            const temContextoPerfume = /\b(ml|perfume|nicho|decant|frasco|desapeg|lacrado|tester|edp|edt|parfum)\b/i.test(t);
+            if (temContextoPerfume) {
+                return { tipo: 'VENDA', confianca: 0.7 };
+            }
         }
 
         return { tipo: 'NEUTRO', confianca: 0 };

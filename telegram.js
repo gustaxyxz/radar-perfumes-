@@ -304,65 +304,82 @@ class TelegramService {
     // NOTIFICAÇÕES FORMATADAS
     // ----------------------------------------------------
 
-    // 1. Notificação do Anúncio Completo no Grupo (sem mascaramento, com WhatsApp direto e análise inteligente de mercado)
+    // 1. Notificação do Anúncio Completo no Grupo (com WhatsApp direto, análise de mercado e fotos)
     async notificarAnuncioParceiro(item, media = null) {
         const security = require('./security');
-        const icone = item.tipo === 'COMPRA' ? '🔍 [PROCURA / COMPRADOR]' : '💎 [DESAPEGO / VENDA]';
-        const precoTxt = item.preco ? `R$ ${item.preco.toFixed(2)}` : 'A combinar';
-        const volTxt = item.volume ? ` (${item.volume}ml)` : '';
+        const ehOuro = item.analiseMercado?.classificacao === 'OPORTUNIDADE_DE_OURO';
+        const ehBomPreco = item.analiseMercado?.classificacao === 'BOM_PRECO';
 
-        // Análise de Mercado (FIPE de Perfumes / Inteligência Comercial)
-        let analiseMercadoTxt = '';
-        if (item.analiseMercado && item.analiseMercado.selo) {
-            analiseMercadoTxt = `\n📊 <b>Análise de Mercado:</b> <b>${item.analiseMercado.selo}</b>\n💡 <i>${item.analiseMercado.parecer}</i>\n`;
+        // Cabeçalho por tipo de anúncio
+        let header;
+        if (ehOuro) {
+            header = `🔥🔥🔥 <b>OPORTUNIDADE DE OURO!</b> 🔥🔥🔥`;
+        } else if (ehBomPreco) {
+            header = item.tipo === 'COMPRA'
+                ? `🔍 <b>COMPRADOR LOCALIZADO</b>`
+                : `💸 <b>BOM PREÇO • VENDA DETECTADA</b>`;
+        } else {
+            header = item.tipo === 'COMPRA'
+                ? `🔍 <b>PROCURA / COMPRADOR</b>`
+                : `💶 <b>DESAPEGO / VENDA</b>`;
         }
 
-        // Formatação inteligente e real do número de WhatsApp
+        // Preço e volume
+        const precoTxt = item.preco ? `R$ ${item.preco.toFixed(2)}` : 'A combinar';
+        const volTxt = item.volume ? ` • ${item.volume}ml` : '';
+        const mlTxt = item.custoPorMl ? ` (R$ ${item.custoPorMl}/ml)` : '';
+
+        // Contato
         const telInfo = security.formatarTelefoneWhatsapp(item.autorTelefone, item.autor);
         const linkWpp = telInfo.linkWpp || (item.autorTelefone ? `https://wa.me/${item.autorTelefone}` : '');
-        const telExibicao = telInfo.formatado || (item.autorTelefone ? `+${item.autorTelefone}` : 'Não informado');
+        const telExibicao = telInfo.formatado || (item.autorTelefone ? `+${item.autorTelefone}` : 'Não identificado');
 
-        let extraDecant = '';
-        if (item.oportunidadeDecant && item.custoPorMl) {
-            extraDecant = `\n🧪 <b>Oportunidade Fracionado:</b> Custo ~ R$ ${item.custoPorMl}/ml`;
+        // Análise de Mercado — só aparece se for relevante (OURO ou BOM)
+        let analiseTxt = '';
+        if (ehOuro && item.analiseMercado) {
+            analiseTxt = `
+📊 <b>ANÁLISE:</b> <b>${item.analiseMercado.descontoPercent}% abaixo da média</b> (~R$ ${item.analiseMercado.precoMedioMercado})
+💰 <b>LUCRO POSSÍVEL: R$ ${item.analiseMercado.spreadReais}+</b>`;
+        } else if (ehBomPreco && item.analiseMercado) {
+            analiseTxt = `
+📊 <b>Mercado:</b> ${item.analiseMercado.descontoPercent}% abaixo da média (~R$ ${item.analiseMercado.precoMedioMercado}) • Margem ~R$ ${item.analiseMercado.spreadReais}`;
         }
 
-        let auditTxt = '';
-        if (item.auditoriaSeguranca) {
-            auditTxt = `\n🛡️ <b>Auditoria Anti-Golpe:</b> ${item.auditoriaSeguranca.selo} (Score: ${item.auditoriaSeguranca.score}/100)`;
+        // Texto original do anúncio (truncado se muito longo)
+        let descricaoOriginal = '';
+        if (item.texto && item.texto !== '[Foto de perfume / desapego]') {
+            const textoLimpo = item.texto.trim();
+            const truncado = textoLimpo.length > 600 ? textoLimpo.substring(0, 597) + '...' : textoLimpo;
+            descricaoOriginal = `
+
+💬 <b>Mensagem original:</b>
+<i>${escapeHtml(truncado)}</i>`;
         }
 
-        const texto = `<b>${icone} DETECTADO!</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-📦 <b>Perfume:</b> <b>${item.perfume || 'Perfume / Desapego Geral'}</b>
-💰 <b>Preço:</b> <b>${precoTxt}</b>${volTxt}${extraDecant}
-${analiseMercadoTxt}
-👥 <b>Grupo Origem:</b> ${item.grupoNome}
-👤 <b>Anunciante:</b> <b>${item.autor}</b>
-📞 <b>WhatsApp:</b> <code>${telExibicao}</code>
-🔗 <b>Link Direto:</b> <a href="${linkWpp}">${linkWpp}</a>
-🆔 <b>Código:</b> <code>${item.id}</code>${auditTxt}
+        const separador = ehOuro
+            ? '\n═════════════════════════'
+            : '\n─────────────────────────';
 
-💬 <b>Descrição Completa do Anúncio:</b>
-<i>${escapeHtml(item.texto)}</i>
-━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+        const texto = `${header}${separador}
+📦 <b>${item.perfume || 'Perfume / Desapego Geral'}</b>${volTxt}${mlTxt}
+💰 <b>Preço:</b> <b>${precoTxt}</b>${analiseTxt}
+👥 <b>Grupo:</b> ${item.grupoNome}
+👤 <b>${item.autor}</b>
+📲 <code>${telExibicao}</code>${descricaoOriginal}
+🔗 <a href="${linkWpp}">Abrir WhatsApp</a> • 🆔 <code>${item.id}</code>${separador}`;
 
+        // Botões inline
         const botoes = [];
         if (linkWpp) {
-            botoes.push([{ text: '💬 Chamar no WhatsApp (1 Clique)', url: linkWpp }]);
+            botoes.push([{ text: '💬 Chamar no WhatsApp', url: linkWpp }]);
         }
-        botoes.push([
-            { text: '🛡️ Checklist Anti-Golpe', callback_data: `checklist_${item.id}` }
-        ]);
-
+        botoes.push([{ text: '🛡️ Checklist Anti-Golpe', callback_data: `checklist_${item.id}` }]);
         const replyMarkup = { inline_keyboard: botoes };
 
+        // Fotos
         let fotos = Array.isArray(media) ? media : (media ? [media] : []);
-        if (fotos.length === 0 && item?.fotos && Array.isArray(item.fotos) && item.fotos.length > 0) {
-            fotos = item.fotos;
-        } else if (fotos.length === 0 && item?.foto) {
-            fotos = [item.foto];
-        }
+        if (fotos.length === 0 && item?.fotos?.length > 0) fotos = item.fotos;
+        else if (fotos.length === 0 && item?.foto) fotos = [item.foto];
 
         if (fotos.length > 1) {
             await this.enviarAlbum(this.parceiroChatId, fotos, texto, replyMarkup);
