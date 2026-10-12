@@ -23,23 +23,22 @@ module.exports = {
     // --------------------------------------------------------
     // Apenas mensagens desses grupos serão processadas pelo radar.
     GRUPOS_MONITORADOS: [
-        'Locus 2.0 Desapego ⚓️',
-        '⭐Espírito Designer!',
         'PERFUMADOS BRASIL - Desapego🇧🇷 1.0',
         '⭐Espírito Nicho!',
-        '⚓️ Locus Bate-Papo ⚓️'
+        '⭐Espírito Designer!',
+        'Locus 2.0 Desapego ⚓️',
+        'perfumes'   // grupo de teste
     ],
 
     // Palavras-chave ou fragmentos para busca flexível de grupos (caso mudem emojis ou pontuação)
     GRUPOS_ALIAS: [
-        'locus 2.0 desapego',
-        'locus desapego',
-        'espirito designer',
         'perfumados brasil - desapego',
         'perfumados brasil desapego',
+        'perfumados brasil',
         'espirito nicho',
-        'locus bate-papo',
-        'locus bate papo'
+        'espirito designer',
+        'locus 2.0 desapego',
+        'locus desapego'
     ],
 
     // --------------------------------------------------------

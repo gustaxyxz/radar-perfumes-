@@ -312,7 +312,9 @@ class TelegramService {
 
         // Cabeçalho por tipo de anúncio
         let header;
-        if (ehOuro) {
+        if (item.apenasImagem) {
+            header = `📸 <b>FOTO RECEBIDA — SEM TEXTO</b>\n<i>⚠️ Verifique se é procura ou venda e entre em contato!</i>`;
+        } else if (ehOuro) {
             header = `🔥🔥🔥 <b>OPORTUNIDADE DE OURO!</b> 🔥🔥🔥`;
         } else if (ehBomPreco) {
             header = item.tipo === 'COMPRA'

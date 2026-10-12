@@ -75,7 +75,7 @@ function ehGrupoMonitorado(nomeGrupo) {
     if (!nomeGrupo) return false;
     const norm = normalizarTexto(nomeGrupo);
 
-    // 1. Grupos configurados pelo nome exato (ignorando case e acentos)
+    // 1. Grupos configurados pelo nome exato (ignorando case, acentos e emojis)
     for (const g of config.GRUPOS_MONITORADOS) {
         if (normalizarTexto(g) === norm) return true;
     }
@@ -87,16 +87,7 @@ function ehGrupoMonitorado(nomeGrupo) {
         }
     }
 
-    // 3. Termos-chave obrigatórios de perfumaria (NÃO aceita qualquer grupo)
-    const termosChave = [
-        'locus', 'espirito', 'perfumad', 'perfume', 'desapego', 'decant',
-        'nicho', 'fragranc', 'parfum', 'fracionado'
-    ];
-    for (const t of termosChave) {
-        if (norm.includes(t)) return true;
-    }
-
-    // Grupo não reconhecido como de perfumaria — IGNORAR
+    // NÃO aceita grupos desconhecidos — filtro estrito para evitar capturar grupos errados
     return false;
 }
 
@@ -339,7 +330,16 @@ async function dispararAnuncioConsolidado(chave) {
             return;
         }
 
-        const tipoFinal = classificacao.tipo !== 'NEUTRO' ? classificacao.tipo : 'VENDA';
+        // Define tipo final:
+        // - Se tem classificação clara, usa ela
+        // - Se é só foto sem texto, marca como FOTO_SEMTEXTO para notificação especial
+        const apenasImagem = ehTipoImagem && (!texto || texto === '[Foto de perfume / desapego]');
+        const tipoFinal = classificacao.tipo !== 'NEUTRO' ? classificacao.tipo
+            : apenasImagem ? 'FOTO_SEMTEXTO'
+            : 'VENDA';
+
+        // Texto descritivo para caso de foto sem texto
+        const textoItem = texto || (ehTipoImagem ? '📸 Foto enviada sem texto — verifique manualmente se é procura ou venda!' : '[Sem descrição]');
 
         // Normalização completa do telefone e link wa.me
         const telInfo = security.formatarTelefoneWhatsapp(autorTelefone, entry.rawAuthor);
@@ -352,8 +352,9 @@ async function dispararAnuncioConsolidado(chave) {
             linkWhatsapp: telInfo.linkWpp,
             grupoId: origem,
             grupoNome: nomeGrupo,
-            texto: texto || '[Foto de perfume / desapego]',
-            tipo: tipoFinal,
+            texto: textoItem,
+            tipo: tipoFinal === 'FOTO_SEMTEXTO' ? 'VENDA' : tipoFinal,
+            apenasImagem: apenasImagem,
             perfume: dadosExtraidos.perfume,
             preco: dadosExtraidos.preco,
             volume: dadosExtraidos.volume,
